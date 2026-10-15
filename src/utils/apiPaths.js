@@ -1,4 +1,4 @@
-//export const BASE_URL = "http://localhost:8000/";
+// export const BASE_URL = "http://localhost:8000/";
 export const BASE_URL = "https://boblte-eal-api.techpebble.com/";
 
 //utils/apiPaths.js
@@ -35,13 +35,20 @@ export const API_PATHS = {
     COMPANY: {
         GET_DATA: 'api/v1/companies',
     },
-    DELIVRY: {
+    DELIVERY: {
         GET_DATA: 'api/v1/delivery',
+        ADD_DATA: 'api/v1/delivery',
+        UPDATE_DATA: 'api/v1/delivery',
     },
     PACK: {
         GET_DATA: 'api/v1/packs',
+        ADD_DATA: 'api/v1/packs',
+        UPDATE_DATA: 'api/v1/packs',
     },
     ITEM: {
         GET_DATA: 'api/v1/items',
+        ADD_DATA: 'api/v1/items',
+        UPDATE_DATA: 'api/v1/items',
+        UPDATE_STATUS: 'api/v1/items',
     }
 }

@@ -45,6 +45,24 @@ export const SIDE_MENU_DATA = [
     },
     {
         id: "08",
+        label: "Items",
+        icon: LuScanSearch,
+        path: "/items"
+    },
+    {
+        id: "09",
+        label: "Packs",
+        icon: LuScanSearch,
+        path: "/packs"
+    },
+    {
+        id: "10",
+        label: "Delivery Depots",
+        icon: LuScanSearch,
+        path: "/delivery-depots"
+    },
+    {
+        id: "11",
         label: "Logout",
         icon: LuLogOut,
         path: "/logout"

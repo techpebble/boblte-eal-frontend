@@ -18,6 +18,9 @@ import Logout from "./pages/Auth/Logout";
 import FinishedStock from "./pages/Dashboard/FinishedStock";
 import FindEAL from "./pages/Dashboard/FindEAL";
 import EALStock from "./pages/Dashboard/EALStock";
+import Items from "./pages/Dashboard/Items";
+import Packs from "./pages/Dashboard/Packs";
+import DeliveryDepots from "./pages/Dashboard/DeliveryDepots";
 
 const App = () => {
   return (
@@ -37,6 +40,9 @@ const App = () => {
             <Route path="/dispatch" exact element={<ProtectedRoute><Dispatch /></ProtectedRoute>} />
             <Route path="/eal-stock" exact element={<ProtectedRoute><EALStock /></ProtectedRoute>} />
             <Route path="/find-eal" exact element={<ProtectedRoute><FindEAL /></ProtectedRoute>} />
+            <Route path="/items" exact element={<ProtectedRoute><Items /></ProtectedRoute>} />
+            <Route path="/packs" exact element={<ProtectedRoute><Packs /></ProtectedRoute>} />
+            <Route path="/delivery-depots" exact element={<ProtectedRoute><DeliveryDepots /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </Router>

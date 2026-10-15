@@ -54,7 +54,7 @@ function AddEALUsageForm({onAddEALUsage}) {
     const fetchItems = async () => {
         
         try {
-            const para = '?' + (EALIssuance.company ? 'company=' + EALIssuance.company : '') + (EALIssuance.market ? '&market=' + EALIssuance.market : '') + (EALIssuance.pack ? '&pack=' + EALIssuance.pack : '');
+            const para = '?isActive=true' + (EALIssuance.company ? '&company=' + EALIssuance.company : '') + (EALIssuance.market ? '&market=' + EALIssuance.market : '') + (EALIssuance.pack ? '&pack=' + EALIssuance.pack : '');
             const response = await axiosInstance.get(API_PATHS.ITEM.GET_DATA + para);
             if (response.data) {
                 const itemOptions = response.data.data.map((item) => ({
