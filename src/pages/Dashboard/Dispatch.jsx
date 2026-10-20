@@ -1,984 +1,941 @@
-import React, { useEffect, useState } from 'react';
-import axiosInstance from '../../utils/axiosInstance';
-import { API_PATHS } from '../../utils/apiPaths';
-import DashboardLayout from '../../components/layouts/DashboardLayout';
-import Modal from '../../components/Modal/Modal';
-import AddDispatchForm from '../../components/Dispatch/AddDispatchForm';
-import toast from 'react-hot-toast';
-import { formatDate, formatDateToYYYYMMDD } from '../../utils/helper';
-import DateRangeModal from '../../components/Modal/DateRangeModal';
-import { LuEye, LuLink, LuPen, LuPlus } from 'react-icons/lu';
-import LoadingOverlay from '../../components/LoadingOverlay';
-import DispatchActions from '../../components/Dispatch/DispatchActions';
+import React, { useEffect, useMemo, useState } from 'react'
+import toast from 'react-hot-toast'
+import { LuDownload, LuLink, LuPlus, LuTriangleAlert, LuX } from 'react-icons/lu'
+import DashboardLayout from '../../components/layouts/DashboardLayout'
+import Modal from '../../components/Modal/Modal'
+import DateRangeModal from '../../components/Modal/DateRangeModal'
+import AddDispatchForm from '../../components/Dispatch/AddDispatchForm'
+import EmptyState from '../../components/Dashboard/EmptyState'
+import SerialRange from '../../components/Dashboard/SerialRange'
+import StatusPill from '../../components/Dashboard/StatusPill'
+import { SkeletonLines } from '../../components/Dashboard/Skeleton'
+import { CheckIcon, TruckIcon } from '../../components/Dashboard/icons'
+import {
+  formatQuantity,
+  marketStyle,
+  shortReference
+} from '../../components/Dashboard/dashboardFormat'
+import axiosInstance from '../../utils/axiosInstance'
+import { API_PATHS } from '../../utils/apiPaths'
+import { downloadCsv } from '../../utils/exportCsv'
+import { formatDate, formatDateToYYYYMMDD } from '../../utils/helper'
+
+const STATUS_TABS = [
+  { key: 'open', label: 'Open', matches: ['draft', 'final'] },
+  { key: 'moving', label: 'In transit', matches: ['loaded', 'dispatched'] },
+  { key: 'delivered', label: 'Delivered', matches: ['delivered'] },
+  { key: 'all', label: 'All', matches: null }
+]
+
+// Case counts come out of a division, so compare them the way the API does.
+const TOLERANCE = 1e-6
+
+const monthToDate = () => {
+  const now = new Date()
+  return { startDate: new Date(now.getFullYear(), now.getMonth(), 1), endDate: now, key: 'selection' }
+}
+
+const headerCell =
+  'bg-[#FAFAF8] px-3.5 pt-[11px] pb-2.5 text-left text-[11px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase whitespace-nowrap'
+const bodyCell = 'border-t border-[#EDECE8] px-3.5 py-3 text-[13px] text-[#2A2F36]'
+
+const fieldClass =
+  'h-[38px] w-full rounded-lg border border-[#D7D6D1] bg-white px-[11px] font-numeric text-[13.5px] tabular-nums text-[#15181C] outline-none focus:border-[#15594A] focus:ring-[3px] focus:ring-[#E7F0EC]'
 
 const Dispatch = () => {
-  // State for loading indicator
-  const [loading, setLoading] = useState(false);
+  const [dispatches, setDispatches] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
 
-  // State for storing dispatch details
-  const [dispatches, setDispatches] = useState([]);
+  const [dateRange, setDateRange] = useState(monthToDate)
+  const [company, setCompany] = useState('')
+  const [market, setMarket] = useState('')
+  const [statusTab, setStatusTab] = useState('open')
+  const [companies, setCompanies] = useState([])
 
-  // State for controlling the "Add Dispatch" modal
-  const [openDispatchModalAdd, setOpenDispatchModalAdd] = useState(false);
+  const [selectedId, setSelectedId] = useState(null)
+  const [linkItemId, setLinkItemId] = useState(null)
+  const [newEALData, setNewEALData] = useState({ prefix: '', serialFrom: '', serialTo: '' })
 
-  // State for controlling the "View Dispatch Details" modal
-  const [openDispatchModalView, setOpenDispatchModalView] = useState(false);
+  const [formOpen, setFormOpen] = useState(false)
+  const [formDispatch, setFormDispatch] = useState(null)
+  const [vehicleOpen, setVehicleOpen] = useState(false)
+  const [vehicleData, setVehicleData] = useState({ vehicleNumber: '', driverName: '', driverContact: '' })
+  const [unlinkCandidate, setUnlinkCandidate] = useState(null)
+  const [unlinkConfirmText, setUnlinkConfirmText] = useState('')
 
-  // State for controlling the "Submit the Vehcile Details" modal
-  const [openDispatchModalLoad, setopenDispatchModalLoad] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0)
 
-  const [linkDispatchModalOpen, setLinkDispatchModalOpen] = useState(false);
-  const [linkDispatchDetailsData, setLinkDispatchDetailsData] = useState(null);
+  const onApplyDateRange = (selectedRange) => setDateRange(selectedRange)
 
-  const [vehicleData, setVehicleData] = useState({
-    vehicleNumber: '',
-    driverName: '',
-    driverContact: ''
-  });
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
 
-  // State for storing the data of the currently viewed/edited dispatch
-  const [dispatchData, setDispatchData] = useState([]);
-
-  // State for the currently selected item within a dispatch for EAL linking
-  const [selectedItem, setSelectedItem] = useState(null);
-
-  // State for new EAL data to be linked
-  const [newEALData, setNewEALData] = useState({ prefix: '', serialFrom: '', serialTo: '', usedQuantity: '' });
-
-  // State for managing EAL unlink confirmation
-  const [unlinkCandidate, setUnlinkCandidate] = useState(null);
-  const [unlinkConfirmText, setUnlinkConfirmText] = useState('');
-
-  // State for date range filtering
-  const [dateRange, setDateRange] = useState({
-    startDate: new Date(),
-    endDate: new Date(),
-    key: 'selection',
-  });
-
-  /**
-   * Fetches dispatch details from the API based on the selected date range.
-   * @param {Object} selectedRange - The date range object containing startDate and endDate.
-   */
-  const fetchDispatchDetails = async (selectedRange = dateRange) => {
-    if (loading) return null;
-    setLoading(true);
-
-    try {
-      const url =
-        API_PATHS.DISPATCH.GET_DATA +
-        `?startDate=${formatDateToYYYYMMDD(selectedRange.startDate)}&endDate=${formatDateToYYYYMMDD(selectedRange.endDate)}`;
-
-      const response = await axiosInstance.get(url);
-
-      if (response.data) {
-        setDispatches(response.data);
-        return response.data; // ✅ Return data for immediate use
+    const fetchDispatchDetails = async () => {
+      try {
+        const response = await axiosInstance.get(API_PATHS.DISPATCH.GET_DATA, {
+          params: {
+            startDate: formatDateToYYYYMMDD(dateRange.startDate),
+            endDate: formatDateToYYYYMMDD(dateRange.endDate),
+            ...(company ? { company } : {}),
+            ...(market ? { market } : {})
+          }
+        })
+        if (cancelled) return
+        setDispatches(Array.isArray(response.data?.data) ? response.data.data : [])
+      } catch (err) {
+        if (cancelled) return
+        console.error('Error fetching dispatch details:', err)
+        setError(err?.response?.data?.message || 'Could not load the dispatch notes.')
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-
-      return null;
-    } catch (error) {
-      console.error('Error fetching dispatch details:', error);
-      toast.error('Something went wrong. Please try again.');
-      return null;
-    } finally {
-      setLoading(false);
     }
-  };
 
+    fetchDispatchDetails()
+    return () => { cancelled = true }
+  }, [dateRange, company, market, reloadToken])
 
-  /**
-   * Handles the addition of a new dispatch or updates an existing one.
-   * @param {Object} dispatch - The dispatch object containing details like company, deliveryTo, etc.
-   */
+  useEffect(() => {
+    const fetchCompanies = async () => {
+      try {
+        const res = await axiosInstance.get(API_PATHS.COMPANY.GET_DATA)
+        setCompanies(res.data?.data || res.data || [])
+      } catch (err) {
+        console.log('Could not load the company list.', err)
+      }
+    }
+    fetchCompanies()
+  }, [])
+
+  const tab = STATUS_TABS.find((entry) => entry.key === statusTab) || STATUS_TABS[0]
+  const notes = useMemo(
+    () => (tab.matches ? dispatches.filter((note) => tab.matches.includes(note.status)) : dispatches),
+    [dispatches, tab]
+  )
+
+  // Keep a selection only while it is still in the list.
+  useEffect(() => {
+    if (notes.length === 0) {
+      setSelectedId(null)
+      return
+    }
+    if (!notes.some((note) => note._id === selectedId)) setSelectedId(notes[0]._id)
+  }, [notes, selectedId])
+
+  const selected = dispatches.find((note) => note._id === selectedId) || null
+  const linkItem = selected?.items?.find((entry) => entry.item?._id === linkItemId) || null
+
+  useEffect(() => { setLinkItemId(null) }, [selectedId])
+
+  const replaceNote = (updated) => {
+    setDispatches((previous) => previous.map((note) => (note._id === updated._id ? updated : note)))
+  }
+
+  const linkedCases = (note) => note?.EALIssuedTotalQuantity || 0
+  const totalCases = (note) => note?.totalQuantity || 0
+  const isFullyLinked = (note) => linkedCases(note) + TOLERANCE >= totalCases(note)
+
+  /** Mirrors the rules addEALLinkToDispatchItem enforces, so a bad range is
+      caught before it is sent. */
+  const linkChecks = useMemo(() => {
+    if (!linkItem) return null
+
+    const perCase = linkItem.item?.bottlesPerCase || 0
+    const from = Number(newEALData.serialFrom)
+    const to = Number(newEALData.serialTo)
+    const count = Number.isFinite(from) && Number.isFinite(to) ? to - from + 1 : 0
+    const cases = perCase > 0 ? count / perCase : 0
+    const remaining = (linkItem.quantityInCases || 0) - (linkItem.EALIssuedQuantity || 0)
+
+    const checks = [
+      {
+        ok: /^[A-Z]{3}$/.test(newEALData.prefix.trim()),
+        text: 'Prefix is three uppercase letters.'
+      },
+      {
+        ok: /^\d{10}$/.test(newEALData.serialFrom) && /^\d{10}$/.test(newEALData.serialTo),
+        text: 'Both serials are ten digits.'
+      },
+      {
+        ok: count > 0,
+        text: 'Serial to is above serial from.'
+      },
+      {
+        ok: perCase > 0 && count > 0 && count % perCase === 0 && to % perCase === 0 && (from - 1) % perCase === 0,
+        text: `The range closes on a whole case of ${perCase || '—'}.`
+      },
+      {
+        ok: cases > 0 && cases <= remaining + TOLERANCE,
+        text: `Fits the ${formatQuantity(remaining)} case(s) still to link.`
+      }
+    ]
+
+    return { checks, cases, remaining, valid: checks.every((check) => check.ok) }
+  }, [linkItem, newEALData])
+
   const handleSubmitDispatch = async (dispatch) => {
-    const { company, deliveryTo, dateDispatched, market, items } = dispatch;
+    const { company: noteCompany, deliveryTo, dateDispatched, market: noteMarket, items } = dispatch
 
-    // Input validation
-    if (!company?.trim()) {
-      toast.error('Please select a Company');
-      return;
-    }
-    if (!deliveryTo?.trim()) {
-      toast.error('Please select a delivery location');
-      return;
-    }
-    if (isNaN(Date.parse(dateDispatched))) {
-      toast.error('Please enter the date correctly');
-      return;
-    }
-    if (!market?.trim()) {
-      toast.error('Please select a Market');
-      return;
-    }
-    if (!Array.isArray(items) || items.length === 0) {
-      toast.error('Please add at least one item');
-      return;
-    }
+    if (!noteCompany?.trim()) { toast.error('Please select a Company'); return }
+    if (!deliveryTo?.trim()) { toast.error('Please select a delivery location'); return }
+    if (isNaN(Date.parse(dateDispatched))) { toast.error('Please enter the date correctly'); return }
+    if (!noteMarket?.trim()) { toast.error('Please select a Market'); return }
+    if (!Array.isArray(items) || items.length === 0) { toast.error('Please add at least one item'); return }
 
-    // Calculate total quantity of items
-    let totalQuantity = 0;
-    items.forEach((item) => {
-      totalQuantity += +item.quantityInCases;
-    });
-    dispatch.totalQuantity = totalQuantity;
-    try {
-      setLoading(true);
-      // Determine if it's an add or edit operation
-      if (dispatch._id) { // If _id exists, it's an update
-        await axiosInstance.put(`${API_PATHS.DISPATCH.UPDATE_DATA}/${dispatch._id}`, dispatch);
-        toast.success('Dispatch Details updated successfully');
-      } else { // Otherwise, it's a new dispatch
-        await axiosInstance.post(API_PATHS.DISPATCH.ADD_DATA, dispatch);
-        toast.success('Dispatch Details added successfully');
-      }
-      setOpenDispatchModalAdd(false); // Close the modal
-      fetchDispatchDetails(); // Refresh the dispatch list
-    } catch (error) {
-      console.error('Error adding/updating Dispatch Details:', error.response?.data?.message || error.message);
-      toast.error(error.response?.data?.message || 'Failed to save dispatch details.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /**
-   * Opens the "View Dispatch Details" modal and sets the data for display.
-   * @param {Object} details - The dispatch object to be viewed.
-   */
-  const viewDispatchDetails = (details) => {
-    setOpenDispatchModalView(true);
-    setDispatchData(details);
-  };
-
-  /**
-   * Opens the "Add Dispatch" modal with pre-filled data for editing.
-   * @param {Object} details - The dispatch object to be edited.
-   */
-  const editDispatchDetails = (details) => {
-    if (details.status == 'draft') {
-      setDispatchData(details);
-      setOpenDispatchModalAdd(true);
-    }
-  };
-
-  /**
-   * Handles changes in the new EAL data input fields.
-   * @param {string} key - The key of the EAL data field to update (e.g., 'prefix', 'serialFrom').
-   * @param {string} value - The new value for the field.
-   */
-  const handleChange = (key, value) => {
-    setNewEALData({ ...newEALData, [key]: value });
-  };
-
-  /**
-   * Opens the EAL linking modal for a specific item within a dispatch.
-   * @param {Object} item - The item object from the dispatch that needs EAL linking.
-   */
-  const openEALModal = (item) => {
-    setSelectedItem(item);
-    setNewEALData({ prefix: '', serialFrom: '', serialTo: '', usedQuantity: '' }); // Reset form
-  };
-
-  /**
-   * Closes the EAL linking modal.
-   */
-  const closeEALModal = () => setSelectedItem(null);
-
-  /**
-   * Handles the addition of a new EAL issuance.
-   */
-  const handleAddEAL = async () => {
-
-    const usedQuantity = parseInt(newEALData.serialTo) - parseInt(newEALData.serialFrom) + 1;
-    const bottlesPerCase = selectedItem.item.bottlesPerCase;
-    const usedCases = usedQuantity / bottlesPerCase;
-    const availableCases = selectedItem.quantityInCases - selectedItem.EALIssuedQuantity;
-
-
-    // Validate EAL input fields
-    if (!/^[A-Z]{3}$/.test(newEALData.prefix.trim())) {
-      toast.error('Prefix must be 3 uppercase letters (A-Z)');
-      return;
-    }
-    if (!/^\d{10}$/.test(newEALData.serialFrom)) {
-      toast.error('Serial From must be a 10-digit number');
-      return;
-    }
-    if (!/^\d{10}$/.test(newEALData.serialTo)) {
-      toast.error('Serial To must be a 10-digit number');
-      return;
-    }
-    if (newEALData.serialFrom >= newEALData.serialTo) {
-      toast.error('Serial To must be greater than Serial From');
-      return;
-    }
-
-    if (usedQuantity % bottlesPerCase !== 0 || (parseInt(newEALData.serialTo) % bottlesPerCase) !== 0 || ((parseInt(newEALData.serialFrom) - 1) % bottlesPerCase) !== 0) {
-      toast.error(`Serial range not divisible by bottles per case.`);
-      return;
-    }
-    if ((selectedItem.quantity - selectedItem.EALIssuedQuantity) * bottlesPerCase < usedQuantity) {
-      toast.error('Serials exceed quantity to be issued');
-      return;
-    }
-
-    if (usedCases > availableCases) {
-      toast.error(`Cannot link more EALs than required. Available: ${availableCases} cases.`);
-      return;
-    }
-
-    const EALLink = {
-      "dispatchId": dispatchData._id,
-      "itemId": selectedItem.item._id,
-      "prefix": newEALData.prefix,
-      "serialFrom": newEALData.serialFrom,
-      "serialTo": newEALData.serialTo
-    }
+    dispatch.totalQuantity = items.reduce((sum, entry) => sum + Number(entry.quantityInCases || 0), 0)
 
     try {
-      setLoading(true);
-      const response = await axiosInstance.post(API_PATHS.EALDISPATCH.ADD_EAL_LINK, EALLink);
-      const { message, updatedDispatch } = response.data;
-
-      toast.success(message);
-      setNewEALData({ prefix: '', serialFrom: '', serialTo: '', usedQuantity: '' }); // Clear form after successful add
-      // 1. Update `dispatchData` state
-      setDispatchData(updatedDispatch);
-
-      // 2. Update `selectedItem` state
-      // Find the updated item within the updatedDispatch's items array
-      const updatedSelectedItem = updatedDispatch.items.find(
-        (item) => item.item._id === selectedItem.item._id
-      );
-      if (updatedSelectedItem) {
-        setSelectedItem(updatedSelectedItem);
+      setBusy(true)
+      if (dispatch._id) {
+        await axiosInstance.put(`${API_PATHS.DISPATCH.UPDATE_DATA}/${dispatch._id}`, dispatch)
+        toast.success('Dispatch Details updated successfully')
+      } else {
+        await axiosInstance.post(API_PATHS.DISPATCH.ADD_DATA, dispatch)
+        toast.success('Dispatch Details added successfully')
       }
-
-      // 3. Update `dispatches` state
-      setDispatches(prevDispatches => {
-        // Assuming dispatches.data is the array we need to update
-        if (Array.isArray(prevDispatches.data)) {
-          return {
-            ...prevDispatches,
-            data: prevDispatches.data.map(dispatch =>
-              dispatch._id === updatedDispatch._id ? updatedDispatch : dispatch
-            ),
-          };
-        }
-        return prevDispatches; // Return original if data is not an array
-      });
-    } catch (error) {
-      console.error('Error adding EAL Issuance:', error.response?.data?.message || error.message);
-      toast.error(error.response?.data?.error || error.message);
+      setFormOpen(false)
+      setReloadToken((token) => token + 1)
+    } catch (err) {
+      console.error('Error saving dispatch:', err.response?.data?.message || err.message)
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to save dispatch details.')
     } finally {
-      setLoading(false);
+      setBusy(false)
     }
-  };
+  }
 
-  /**
-   * Applies the selected date range and refetches dispatch details.
-   * @param {Object} selectedRange - The new date range.
-   */
-  const onApplyDateRange = (selectedRange) => {
-    setDateRange(selectedRange);
-    fetchDispatchDetails(selectedRange); // Pass selected range for filtered data
-  };
-
-  /**
-   * Placeholder function for linking dispatch details (currently not implemented in the UI).
-   * @param {Object} details - The dispatch details to be linked.
-   */
-  const linkDispatchDetails = (details) => {
-    setLinkDispatchDetailsData(details);
-    setLinkDispatchModalOpen(true);
-    // This function can be expanded to handle specific linking logic, e.g., for external systems.
-  };
-
-  /**
-   * Updates the status of a dispatch.
-   * @param {string} id - The ID of the dispatch to update.
-   * @param {string} status - The new status (e.g., 'final').
-   */
   const updateDispatchStatus = async (id, status) => {
-    if (!status.trim()) {
-      toast.error('Something went wrong. Status cannot be empty.');
-      return;
-    }
-    if (!id.trim()) {
-      toast.error('Something went wrong. Status cannot be empty.');
-      return;
-    }
-
     try {
-      setLoading(true);
-      const url = `${API_PATHS.DISPATCH.UPDATE_DATA}/${id}/status`;
-      await axiosInstance.put(url, { status });
-
-      setDispatches(prev => ({
-        ...prev,
-        data: prev.data.map(dispatch =>
-          dispatch._id === id ? { ...dispatch, status } : dispatch
-        )
-      }));
-
-      setDispatchData(prev =>
-        prev && prev._id === id ? { ...prev, status } : prev
-      );
-      //setOpenDispatchModalView(false); // Close the view modal
-      toast.success('Dispatch Details updated successfully');
-      // await fetchDispatchDetails(); // Refresh the dispatch list
-      // console.log(dispatches.data);
-      // const updatedDispatch = dispatches.data.find(dispatch => dispatch._id === id)
-      // setDispatchData(updatedDispatch);
-    } catch (error) {
-      console.error('Error updating Dispatch Details status:', error.response?.data?.message || error.message);
-      toast.error(error.response?.data?.message || 'Failed to update dispatch status.');
+      setBusy(true)
+      await axiosInstance.put(`${API_PATHS.DISPATCH.UPDATE_DATA}/${id}/status`, { status })
+      setDispatches((previous) =>
+        previous.map((note) => (note._id === id ? { ...note, status } : note))
+      )
+      toast.success(`Dispatch marked ${status}`)
+    } catch (err) {
+      console.error('Error updating status:', err.response?.data?.message || err.message)
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to update dispatch status.')
     } finally {
-      setLoading(false);
+      setBusy(false)
     }
-  };
+  }
 
   const deleteDispatch = async (id) => {
     try {
-      setLoading(true);
-      const url = `${API_PATHS.DISPATCH.DELETE_DATA}/${id}`;
-      await axiosInstance.delete(url);
-
-      // close the modal
-      setOpenDispatchModalView(false);
-
-      setDispatches(prev => ({
-        ...prev,
-        data: prev.data.filter(dispatch => dispatch._id !== id)
-      }));
-
-      toast.success('Dispatch deleted successfully');
-    } catch (error) {
-      console.error('Error deleting Dispatch:', error.response?.data?.message || error.message);
-      toast.error(error.response?.data?.message || 'Failed to delete dispatch.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSubmitVehicleDetails = async (dispatchId, vehicleDetails) => {
-    try {
-      vehicleDetails.status = 'loaded'; // Set status to 'loaded' when submitting vehicle details
-      setLoading(true);
-      const url = `${API_PATHS.DISPATCH.UPDATE_DATA}/${dispatchId}/vehicle`;
-      await axiosInstance.put(url, vehicleDetails);
-      toast.success("Vehicle details submitted");
-      fetchDispatchDetails(); // Refresh dispatch info
-      setopenDispatchModalLoad(false);
-      setOpenDispatchModalView(false);
+      setBusy(true)
+      await axiosInstance.delete(`${API_PATHS.DISPATCH.DELETE_DATA}/${id}`)
+      setDispatches((previous) => previous.filter((note) => note._id !== id))
+      toast.success('Dispatch deleted successfully')
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Error submitting vehicle info');
+      console.error('Error deleting dispatch:', err.response?.data?.message || err.message)
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to delete dispatch.')
     } finally {
-      setLoading(false);
+      setBusy(false)
     }
-  };
+  }
 
-  /**
-   * Handles the unlinking of an EAL.
-   * @param {Object} linkToUnlink - The EAL link object to be unlinked.
-   */
-  const handleUnlinkEAL = async (ealLink) => {
-    // This is a client-side only unlink as per the provided code.
-    // In a real application, you'd make an API call to unlink the EAL on the server.
-    if (unlinkConfirmText === "unlink") {
+  const handleSubmitVehicleDetails = async () => {
+    try {
+      setBusy(true)
+      await axiosInstance.put(`${API_PATHS.DISPATCH.UPDATE_DATA}/${selected._id}/vehicle`, {
+        ...vehicleData,
+        status: 'loaded'
+      })
+      toast.success('Vehicle details submitted')
+      setVehicleOpen(false)
+      setVehicleData({ vehicleNumber: '', driverName: '', driverContact: '' })
+      setReloadToken((token) => token + 1)
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error submitting vehicle info')
+    } finally {
+      setBusy(false)
+    }
+  }
 
-      const EALLink = {
-        "dispatchId": dispatchData._id,
-        "itemId": selectedItem.item._id,
-        "prefix": ealLink.prefix,
-        "serialFrom": ealLink.serialFrom,
-        "serialTo": ealLink.serialTo
-      }
+  const handleAddEAL = async () => {
+    if (!linkChecks?.valid) return
 
-      try {
-        setLoading(true);
-        // Example API call for unlinking (replace with your actual API endpoint)
-        // await axiosInstance.delete(`${API_PATHS.EALDISPATCH.DELETE_DATA}/${unlinkCandidate._id}`);
-        const response = await axiosInstance.post(API_PATHS.EALDISPATCH.REMOVE_EAL_LINK, EALLink);
-        const { message, updatedDispatch } = response.data;
+    try {
+      setBusy(true)
+      const response = await axiosInstance.post(API_PATHS.EALDISPATCH.ADD_EAL_LINK, {
+        dispatchId: selected._id,
+        itemId: linkItem.item._id,
+        prefix: newEALData.prefix,
+        serialFrom: newEALData.serialFrom,
+        serialTo: newEALData.serialTo
+      })
+      const { message, updatedDispatch } = response.data
+      replaceNote(updatedDispatch)
+      setNewEALData({ prefix: '', serialFrom: '', serialTo: '' })
+      toast.success(message || 'EAL linked')
+    } catch (err) {
+      console.error('Error linking EAL:', err.response?.data?.message || err.message)
+      toast.error(err.response?.data?.message || err.response?.data?.error || err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
 
-        // ✅ Update `dispatchData`
-        setDispatchData(updatedDispatch);
+  const handleUnlinkEAL = async () => {
+    if (unlinkConfirmText !== 'unlink' || !unlinkCandidate) return
 
-        // ✅ Update `selectedItem`
-        const updatedSelectedItem = updatedDispatch.items.find(
-          item => item.item._id === selectedItem.item._id
-        );
-        if (updatedSelectedItem) {
-          setSelectedItem(updatedSelectedItem);
+    try {
+      setBusy(true)
+      const response = await axiosInstance.post(API_PATHS.EALDISPATCH.REMOVE_EAL_LINK, {
+        dispatchId: selected._id,
+        itemId: unlinkCandidate.itemId,
+        prefix: unlinkCandidate.link.prefix,
+        serialFrom: unlinkCandidate.link.serialFrom,
+        serialTo: unlinkCandidate.link.serialTo
+      })
+      replaceNote(response.data.updatedDispatch)
+      toast.success('EAL unlinked successfully!')
+      setUnlinkCandidate(null)
+      setUnlinkConfirmText('')
+    } catch (err) {
+      console.error('Error unlinking EAL:', err.response?.data?.message || err.message)
+      toast.error(err.response?.data?.message || 'Failed to unlink EAL.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const exportNotes = () => {
+    if (notes.length === 0) return
+    downloadCsv(
+      `dispatch-${formatDateToYYYYMMDD(dateRange.startDate)}-to-${formatDateToYYYYMMDD(dateRange.endDate)}.csv`,
+      [
+        { header: 'Reference', value: (row) => shortReference(row._id) },
+        { header: 'Company', value: (row) => row.company?.name },
+        { header: 'Date dispatched', value: (row) => formatDate(row.dateDispatched) },
+        { header: 'Market', value: (row) => row.market },
+        { header: 'Depot', value: (row) => row.deliveryTo?.name },
+        { header: 'Status', value: (row) => row.status },
+        { header: 'Cases', value: (row) => row.totalQuantity },
+        { header: 'Cases linked', value: (row) => row.EALIssuedTotalQuantity || 0 },
+        { header: 'Vehicle', value: (row) => row.vehicleDetails?.vehicleNumber },
+        { header: 'Driver', value: (row) => row.vehicleDetails?.driverName }
+      ],
+      notes
+    )
+  }
+
+  const statusActions = () => {
+    if (!selected) return null
+    const id = selected._id
+    const full = isFullyLinked(selected)
+
+    const button = (label, onClick, tone = 'primary') => (
+      <button
+        key={label}
+        type="button"
+        disabled={busy}
+        onClick={onClick}
+        className={
+          tone === 'primary'
+            ? 'h-9 cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-semibold text-white hover:bg-[#124C3F] disabled:opacity-60'
+            : tone === 'danger'
+              ? 'h-9 cursor-pointer rounded-lg border border-[#E3BDBB] bg-white px-3.5 text-[13px] font-medium text-[#9B2C2C] hover:bg-[#FCEBEA] disabled:opacity-60'
+              : 'h-9 cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-3.5 text-[13px] font-medium text-[#2A2F36] hover:bg-[#FAFAF8] disabled:opacity-60'
         }
+      >
+        {label}
+      </button>
+    )
 
-        // ✅ Update `dispatches` list
-        setDispatches(prevDispatches => {
-          if (Array.isArray(prevDispatches.data)) {
-            return {
-              ...prevDispatches,
-              data: prevDispatches.data.map(dispatch =>
-                dispatch._id === updatedDispatch._id ? updatedDispatch : dispatch
-              )
-            };
-          }
-          return prevDispatches;
-        });
-
-        toast.success("EAL unlinked successfully!");
-        setUnlinkCandidate(null);
-        setUnlinkConfirmText("");
-        // fetchDispatchDetails(); // Refresh the main dispatch list
-      } catch (error) {
-        console.error("Error unlinking EAL:", error.response?.data?.message || error.message);
-        toast.error(error.response?.data?.message || "Failed to unlink EAL.");
-      } finally {
-        setLoading(false);
-      }
+    switch (selected.status) {
+      case 'draft':
+        return [
+          button('Edit note', () => { setFormDispatch(selected); setFormOpen(true) }, 'secondary'),
+          button('Delete', () => deleteDispatch(id), 'danger'),
+          button('Finalise', () => updateDispatchStatus(id, 'final'))
+        ]
+      case 'final':
+        return [
+          linkedCases(selected) === 0 &&
+            button('Back to draft', () => updateDispatchStatus(id, 'draft'), 'secondary'),
+          full
+            ? button('Mark loaded', () => setVehicleOpen(true))
+            : <span key="pending" className="self-center text-[12.5px] text-[#8A5A00]">Pending EAL linking</span>
+        ].filter(Boolean)
+      case 'loaded':
+        return [button('Mark dispatched', () => updateDispatchStatus(id, 'dispatched'))]
+      case 'dispatched':
+        return [button('Mark delivered', () => updateDispatchStatus(id, 'delivered'))]
+      default:
+        return null
     }
-  };
-
-
-  // Effect hook to fetch dispatch details on component mount
-  useEffect(() => {
-    fetchDispatchDetails();
-  }, []); // Empty dependency array means this effect runs once after the initial render
+  }
 
   return (
     <DashboardLayout activeMenu="Dispatch">
-      {loading && <LoadingOverlay />}
-      <div className="my-5 mx-auto">
-        <div className="grid grid-cols-1 gap-6">
+      <div className="mx-auto flex max-w-[1400px] flex-col gap-4">
+
+        {/* Page header */}
+        <div className="flex flex-wrap items-end justify-between gap-3.5">
           <div>
-            <div className="bg-gradient-to-br from-blue-50 to-white rounded-xl shadow-lg border border-gray-100 p-0">
-              <div className="px-8 pt-8 pb-4 border-b border-gray-200 rounded-t-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                  <h2 className="text-2xl font-bold text-blue-900 mb-1">Dispatches</h2>
-                  <p className="text-sm text-gray-500">Track your dispatch records over time.</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <DateRangeModal dateRange={dateRange} onApplyDateRange={onApplyDateRange} />
-                  <button
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded shadow flex items-center gap-2"
-                    onClick={() => {
-                      setOpenDispatchModalAdd(true);
-                      setDispatchData([]); // Clear dispatch data when adding new
-                    }}
-                  >
-                    <LuPlus className="text-lg" />
-                    Add Dispatch
-                  </button>
-                </div>
-              </div>
-              <div className="px-8 py-8">
-                <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-                  <table className="min-w-full text-sm text-left text-gray-700">
-                    <thead className="bg-gray-50 sticky top-0 z-10">
-                      <tr>
-                        <th className="px-4 py-3 border-b font-semibold text-gray-700">Si. No.</th>
-                        <th className="px-4 py-3 border-b font-semibold text-gray-700">Company</th>
-                        <th className="px-4 py-3 border-b font-semibold text-gray-700">Dispatch Date</th>
-                        <th className="px-4 py-3 border-b font-semibold text-gray-700">Market</th>
-                        <th className="px-4 py-3 border-b font-semibold text-gray-700">Delivery Depot</th>
-                        <th className="px-4 py-3 border-b font-semibold text-gray-700">Status</th>
-                        <th className="px-4 py-3 border-b font-semibold text-gray-700">Quantity</th>
-                        <th className="px-4 py-3 border-b font-semibold text-gray-700">EAL Linked Quantity</th>
-                        <th className="px-4 py-3 border-b font-semibold text-gray-700">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {/* Conditional rendering for dispatch data */}
-                      {Array.isArray(dispatches?.data) && dispatches.data.length > 0 ? (
-                        dispatches.data.map((entry, index) => (
-                          <tr key={entry._id} className="hover:bg-blue-50 transition-colors">
-                            <td className="px-4 py-2 border-b text-gray-900 font-medium">{index + 1}</td>
-                            <td className="px-4 py-2 border-b">{entry.company.name}</td>
-                            <td className="px-4 py-2 border-b">{formatDate(entry.dateDispatched)}</td>
-                            <td className="px-4 py-2 border-b capitalize">{entry.market}</td>
-                            <td className="px-4 py-2 border-b">{entry.deliveryTo.name}</td>
-                            <td className="px-4 py-2 border-b capitalize">{entry.status}</td>
-                            <td className="px-4 py-2 border-b">{entry.totalQuantity}</td>
-                            <td className="px-4 py-2 border-b">{entry.EALIssuedTotalQuantity}</td>
-                            <td className="px-4 py-2 border-b flex justify-center items-center gap-2">
-                              <button
-                                className="bg-green-100 hover:bg-green-200 text-green-700 font-semibold px-3 py-1 rounded shadow flex items-center gap-1"
-                                onClick={() => viewDispatchDetails(entry)}
-                              >
-                                <LuEye className="text-lg" />
-                              </button>
-                              <button
-                                className="bg-red-100 hover:bg-red-200 text-red-700 font-semibold px-3 py-1 rounded shadow flex items-center gap-1"
-                                onClick={() => linkDispatchDetails(entry)}
-                              >
-                                <LuLink className="text-lg" />
-                              </button>
-                              <button
-                                className="bg-yellow-100 hover:bg-yellow-200 text-yellow-700 font-semibold px-3 py-1 rounded shadow flex items-center gap-1"
-                                onClick={() => editDispatchDetails(entry)}
-                              >
-                                <LuPen className="text-lg" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan="9" className="text-center py-4 text-gray-500">
-                            {loading ? 'Loading...' : 'No data available'}
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+            <h1 className="m-0 text-[25px] font-semibold tracking-[-0.022em]">Dispatch</h1>
+            <p className="mt-1.5 mb-0 text-[13px] text-[#5A636D]">
+              Pick a note on the left; link serial ranges to its cases on the right.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={exportNotes}
+              disabled={notes.length === 0}
+              className="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#D7D6D1] bg-white px-[13px] text-[13px] font-medium text-[#2A2F36] hover:bg-[#FAFAF8] disabled:cursor-not-allowed disabled:text-[#A8ADB5]"
+            >
+              <LuDownload />
+              Export
+            </button>
+            <button
+              type="button"
+              onClick={() => { setFormDispatch(null); setFormOpen(true) }}
+              className="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-medium text-white hover:bg-[#124C3F]"
+            >
+              <LuPlus />
+              New dispatch note
+            </button>
           </div>
         </div>
 
-        {/* Modal for Adding/Editing Dispatch */}
-        <Modal isOpen={openDispatchModalAdd} onClose={() => setOpenDispatchModalAdd(false)} title={dispatchData?._id ? 'Update Dispatch' : 'Add Dispatch'} styleClass="w-full">
-          <div className="bg-gradient-to-br from-blue-50 to-white rounded-xl p-0">
-            <div className="px-8 pt-8 pb-4 border-b border-gray-200 rounded-t-xl">
-              <h2 className="text-2xl font-bold text-blue-900 mb-2">{dispatchData?._id ? 'Update Dispatch' : 'Add Dispatch'}</h2>
-              <p className="text-sm text-gray-500 mb-2">Fill in the details below to {dispatchData?._id ? 'update' : 'add'} a dispatch record.</p>
-            </div>
-            <div className="px-8 py-8">
-              <AddDispatchForm onSubmitDispatch={handleSubmitDispatch} dispatchDetails={dispatchData} />
-            </div>
-          </div>
-        </Modal>
-
-        {/* Modal for Viewing Dispatch Details */}
-        <Modal isOpen={openDispatchModalView} onClose={() => setOpenDispatchModalView(false)} title="Dispatch Details" styleClass="w-full">
-          <div className="h-full overflow-y-auto mx-auto p-0 bg-white shadow-xl rounded-xl">
-            {/* Header Section */}
-            <div className="px-8 pt-8 pb-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-white rounded-t-xl">
-              <div className="grid grid-cols-2 gap-6 mb-2">
-                <div>
-                  <p className="text-gray-500 text-xs">Company</p>
-                  <h2 className="text-xl font-bold text-blue-900">{dispatchData?.company?.name}</h2>
-                </div>
-                <div>
-                  <p className="text-gray-500 text-xs">Market</p>
-                  <h2 className="text-xl font-bold capitalize text-blue-900">{dispatchData.market}</h2>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-6 mb-2">
-                <div>
-                  <p className="text-gray-500 text-xs">Dispatch Date</p>
-                  <h2 className="text-lg font-semibold">{new Date(dispatchData.dateDispatched).toLocaleDateString()}</h2>
-                </div>
-                <div>
-                  <p className="text-gray-500 text-xs">Delivery Location</p>
-                  <h2 className="text-lg font-semibold">{dispatchData.deliveryTo?.name}</h2>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-6 mb-2">
-                <div>
-                  <p className="text-gray-500 text-xs">Total Quantity</p>
-                  <h2 className="text-lg font-semibold">{dispatchData.totalQuantity}</h2>
-                </div>
-                <div>
-                  <p className="text-gray-500 text-xs">EAL Issued Quantity</p>
-                  <h2 className="text-lg font-semibold">{dispatchData.EALIssuedTotalQuantity}</h2>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <p className="text-gray-500 text-xs">Vehicle Number</p>
-                  <h2 className="text-lg font-semibold">{dispatchData?.vehicleDetails?.vehicleNumber}</h2>
-                </div>
-                <div>
-                  <p className="text-gray-500 text-xs">Driver</p>
-                  <h2 className="text-lg font-semibold">{dispatchData?.vehicleDetails?.driverName} ({dispatchData?.vehicleDetails?.driverContact})</h2>
-                </div>
-              </div>
-            </div>
-
-            {/* Items Table Section */}
-            <div className="px-8 py-6">
-              <h3 className="text-lg font-bold mb-4 text-gray-800">Items</h3>
-              <div className="overflow-x-auto rounded-lg border border-gray-200">
-                <table className="min-w-full text-sm text-left text-gray-700">
-                  <thead className="bg-gray-50 sticky top-0 z-10">
-                    <tr>
-                      <th className="px-4 py-3 border-b font-semibold text-gray-700">Item</th>
-                      <th className="px-4 py-3 border-b font-semibold text-gray-700 text-right">Quantity</th>
-                      <th className="px-4 py-3 border-b font-semibold text-gray-700 text-right">EAL Issued</th>
-                      <th className="px-4 py-3 border-b font-semibold text-gray-700 text-center">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dispatchData.items &&
-                      dispatchData.items.map((itemEntry, index) => (
-                        <tr key={index} className="hover:bg-blue-50 transition-colors">
-                          <td className="px-4 py-2 border-b text-gray-900 font-medium">{itemEntry?.item.name}</td>
-                          <td className="px-4 py-2 border-b text-right">{itemEntry.quantityInCases}</td>
-                          <td className="px-4 py-2 border-b text-right">{itemEntry.EALIssuedQuantity || 0}</td>
-                          <td className="px-4 py-2 border-b text-center">
-                            {dispatchData.status == 'final' && <button onClick={() => openEALModal(itemEntry)} className="text-sm px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 transition">
-                              {itemEntry.EALIssuedQuantity < itemEntry.quantityInCases ? 'Link EAL' : 'Unlink EAL'}
-                            </button>}
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Footer Actions Section */}
-            <div className="px-8 pb-8 flex flex-col sm:flex-row justify-end items-center gap-4 border-t border-gray-100 bg-gray-50 rounded-b-xl">
-              {/* Conditional rendering for Finalize button */}
-              {dispatchData.status === 'draft' && (
-                <>
-                  <button type="button" className="btn bg-blue-600 text-white hover:bg-blue-700 px-6 py-2 rounded" onClick={() => updateDispatchStatus(dispatchData._id, 'final')}>
-                    Finalize
-                  </button>
-                  <button type="button" className="btn bg-gray-500 text-white hover:bg-gray-600 px-6 py-2 rounded" onClick={() => deleteDispatch(dispatchData._id)}>
-                    Delete
-                  </button>
-                </>
-              )}
-
-              {dispatchData.status === 'final' && dispatchData.EALIssuedTotalQuantity === 0 && (
-                <button type="button" className="btn bg-yellow-500 text-white hover:bg-yellow-600 px-6 py-2 rounded" onClick={() => updateDispatchStatus(dispatchData._id, 'draft')}>
-                  Draft
-                </button>
-              )}
-
-              {dispatchData.status === 'final' && (
-                dispatchData.EALIssuedTotalQuantity === dispatchData.totalQuantity ? (
-                  <button
-                    type="button"
-                    className="btn bg-green-600 text-white hover:bg-green-700 px-6 py-2 rounded"
-                    onClick={() => setopenDispatchModalLoad(true)}
-                  >
-                    Loaded
-                  </button>
-                ) : (
-                  <span className="text-sm italic text-gray-500 mt-2">Pending EAL issuance</span>
-                )
-              )}
-            </div>
-          </div>
-        </Modal>
-
-        {/* Modal for Linking EAL */}
-        <Modal isOpen={selectedItem} onClose={closeEALModal} title={`Link EAL - ${selectedItem?.item.name}`} styleClass="w-3xl">
-          {/* Quantity Summary */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2 mb-6">
-            <div className="flex flex-col items-center justify-center p-4 rounded-xl bg-gray-50 border border-gray-200">
-              <span className="text-xs text-gray-500 mb-1">Total Qty</span>
-              <span className="text-2xl font-bold text-blue-900">{selectedItem?.quantityInCases}</span>
-            </div>
-            <div className="flex flex-col items-center justify-center p-4 rounded-xl bg-green-50 border border-green-200">
-              <span className="text-xs text-gray-500 mb-1">EAL Issued</span>
-              <span className="text-2xl font-bold text-green-700">{selectedItem?.EALIssuedQuantity || 0}</span>
-            </div>
-            <div className="flex flex-col items-center justify-center p-4 rounded-xl bg-yellow-50 border border-yellow-200">
-              <span className="text-xs text-gray-500 mb-1">Balance</span>
-              <span className="text-2xl font-bold text-yellow-700">{selectedItem?.quantityInCases - (selectedItem?.EALIssuedQuantity || 0)}</span>
-            </div>
-          </div>
-
-          {/* Linked EAL Details */}
-          <div className="mt-2 mb-6">
-            <h4 className="font-semibold text-base mb-3 text-gray-800">Linked EALs</h4>
-            {selectedItem?.EALLinks && selectedItem.EALLinks.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {selectedItem.EALLinks.map((link, index) => (
-                  <div key={index} className="border rounded-xl p-4 flex flex-col gap-2 bg-white shadow-sm relative">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-blue-700 text-xs bg-blue-50 px-2 py-1 rounded">{link.prefix}</span>
-                      <span className="text-xs text-gray-500">Serials:</span>
-                      <span className="font-mono text-xs text-gray-800">{link.serialFrom.toString().padStart(10, '0')}</span>
-                      <span className="text-xs">→</span>
-                      <span className="font-mono text-xs text-gray-800">{link.serialTo.toString().padStart(10, '0')}</span>
-                    </div>
-                    <div className="text-xs text-gray-500">Used: <span className="font-semibold text-gray-700">{(link.serialTo - link.serialFrom + 1) / selectedItem?.item?.bottlesPerCase}</span> cases</div>
-                    {dispatchData.status === 'final' && <button onClick={() => setUnlinkCandidate(link)} className="absolute top-2 right-2 text-red-500 hover:text-red-700 text-xs font-semibold px-2 py-1 rounded bg-red-50">Unlink</button>}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm italic text-gray-400">No EALs linked yet.</p>
-            )}
-          </div>
-
-          {/* Add New EAL Form (conditionally rendered if balance > 0) */}
-          {selectedItem?.quantityInCases - (selectedItem?.EALIssuedQuantity || 0) > 0 && (
-            <div className="mt-6 border-t pt-6">
-              <h4 className="font-semibold text-base mb-3 text-gray-800">Link New EAL</h4>
-              <form className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm items-end" onSubmit={e => { e.preventDefault(); handleAddEAL(); }}>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1" htmlFor="prefix">Prefix</label>
-                  <input
-                    value={newEALData.prefix}
-                    onChange={({ target }) => handleChange('prefix', target.value)}
-                    type="text"
-                    name="prefix"
-                    id="prefix"
-                    placeholder="e.g., ABC"
-                    required
-                    className="border px-3 py-2 rounded w-full focus:ring focus:ring-blue-100"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1" htmlFor="serialFrom">Serial From</label>
-                  <input
-                    value={newEALData.serialFrom}
-                    onChange={({ target }) => handleChange('serialFrom', target.value)}
-                    type="number"
-                    name="serialFrom"
-                    id="serialFrom"
-                    placeholder="10 digits"
-                    required
-                    className="border px-3 py-2 rounded w-full focus:ring focus:ring-blue-100"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1" htmlFor="serialTo">Serial To</label>
-                  <input
-                    value={newEALData.serialTo}
-                    onChange={({ target }) => handleChange('serialTo', target.value)}
-                    type="number"
-                    name="serialTo"
-                    id="serialTo"
-                    placeholder="10 digits"
-                    required
-                    className="border px-3 py-2 rounded w-full focus:ring focus:ring-blue-100"
-                  />
-                </div>
-                <div className="md:col-span-3 text-right mt-2">
-                  <button onClick={handleAddEAL} type="submit" className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-6 py-2 rounded shadow">
-                    Link EAL
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-
-          {/* Modal Actions */}
-          <div className="flex justify-end mt-8 gap-2">
-            <button onClick={closeEALModal} className="px-5 py-2 bg-gray-200 hover:bg-gray-300 rounded text-gray-700 font-medium">
-              Close
-            </button>
-          </div>
-        </Modal>
-
-        {/* Unlink Confirmation Modal */}
-        {unlinkCandidate && (
-          <Modal
-            isOpen={unlinkCandidate}
-            onClose={() => {
-              setUnlinkCandidate(null);
-              setUnlinkConfirmText('');
-            }}
-            title={`Unlink EAL`}
-            styleClass="w-3xl"
-          >
-            <div className="text-sm border rounded-md p-3 bg-gray-50">
-              <div>
-                <strong>Prefix:</strong> {unlinkCandidate.prefix}
-              </div>
-              <div>
-                <strong>Serials:</strong> {unlinkCandidate.serialFrom} &rarr; {unlinkCandidate.serialTo}
-              </div>
-              <div>
-                <strong>Used Quantity:</strong> {unlinkCandidate.usedQuantity}
-              </div>
-            </div>
-            <p className="text-sm mt-2 text-gray-600">
-              To confirm, type <strong className="bg-gray-200 px-1">unlink</strong> below:
-            </p>
-            <input
-              type="text"
-              value={unlinkConfirmText}
-              onChange={(e) => setUnlinkConfirmText(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm"
-              placeholder="Type 'unlink' to confirm"
-            />
-            <div className="flex justify-end gap-3 pt-3">
+        {/* Filter bar */}
+        <div className="flex flex-wrap items-center gap-2 rounded-[11px] border border-[#E3E2DE] bg-white px-3 py-2.5">
+          <DateRangeModal dateRange={dateRange} onApplyDateRange={onApplyDateRange} />
+          <span className="mx-0.5 h-[22px] w-px bg-[#E3E2DE]" />
+          <label className="flex h-[34px] items-center gap-[7px] rounded-lg border border-[#E3E2DE] px-2.5 text-[12.5px]">
+            <span className="text-[#5A636D]">Company</span>
+            <select
+              value={company}
+              onChange={({ target }) => setCompany(target.value)}
+              className="cursor-pointer border-0 bg-transparent font-medium text-[#15181C] outline-none"
+            >
+              <option value="">All</option>
+              {companies.map((option) => (
+                <option key={option._id} value={option._id}>{option.name}</option>
+              ))}
+            </select>
+          </label>
+          <div role="group" aria-label="Market" className="flex h-[34px] gap-0.5 rounded-lg bg-[#F2F1ED] p-[3px]">
+            {[
+              { value: '', label: 'All' },
+              { value: 'local', label: 'Local' },
+              { value: 'export', label: 'Export' }
+            ].map((option) => (
               <button
-                onClick={() => {
-                  setUnlinkCandidate(null);
-                  setUnlinkConfirmText('');
-                }}
-                className="text-gray-500 hover:text-gray-800 px-4 py-2 text-sm"
+                key={option.label}
+                type="button"
+                aria-pressed={market === option.value}
+                onClick={() => setMarket(option.value)}
+                className={`cursor-pointer rounded-md px-3 text-[12.5px] ${
+                  market === option.value ? 'bg-white font-semibold text-[#15181C] shadow-sm' : 'text-[#4A5159]'
+                }`}
               >
-                Cancel
+                {option.label}
               </button>
-              <button
-                disabled={unlinkConfirmText !== 'unlink'}
-                onClick={() => { handleUnlinkEAL(unlinkCandidate) }}
-                className={`px-4 py-2 text-sm text-white rounded ${unlinkConfirmText === 'unlink' ? 'bg-red-600 hover:bg-red-700' : 'bg-red-300 cursor-not-allowed'
-                  }`}
-              >
-                Confirm Unlink
-              </button>
-            </div>
-          </Modal>
+            ))}
+          </div>
+        </div>
+
+        {error && (
+          <p role="alert" className="m-0 rounded-[10px] border border-[#F3C9C7] bg-[#FCEBEA] px-4 py-3 text-[13px] text-[#7A2322]">
+            {error}
+          </p>
         )}
 
-        {/* Modal for Submitting Vehicle Details */}
-        <Modal
-          isOpen={openDispatchModalLoad}
-          onClose={() => setopenDispatchModalLoad(false)}
-          title="Enter Vehicle Details"
-          styleClass="w-full max-w-md"
-        >
-          <div className="space-y-4">
-            <input
-              type="text"
-              value={vehicleData.vehicleNumber}
-              onChange={(e) => setVehicleData(prev => ({ ...prev, vehicleNumber: e.target.value }))}
-              className="w-full border px-3 py-2 rounded"
-              placeholder="Vehicle Number"
-            />
-            <input
-              type="text"
-              value={vehicleData.driverName}
-              onChange={(e) => setVehicleData(prev => ({ ...prev, driverName: e.target.value }))}
-              className="w-full border px-3 py-2 rounded"
-              placeholder="Driver Name"
-            />
-            <input
-              type="text"
-              value={vehicleData.driverContact}
-              onChange={(e) => setVehicleData(prev => ({ ...prev, driverContact: e.target.value }))}
-              className="w-full border px-3 py-2 rounded"
-              placeholder="Driver Contact"
-            />
+        <div className="flex flex-wrap items-start gap-4">
 
-            <div className="flex justify-end gap-3 pt-2">
+          {/* Master list */}
+          <section className="min-w-0 max-w-[400px] flex-[1_1_320px] overflow-hidden rounded-xl border border-[#E3E2DE] bg-white">
+            <div role="group" aria-label="Filter by status" className="flex gap-0.5 border-b border-[#EDECE8] px-3 py-2.5">
+              {STATUS_TABS.map((entry) => (
+                <button
+                  key={entry.key}
+                  type="button"
+                  aria-pressed={statusTab === entry.key}
+                  onClick={() => setStatusTab(entry.key)}
+                  className={`h-[30px] flex-1 cursor-pointer rounded-[7px] text-xs ${
+                    statusTab === entry.key
+                      ? 'bg-[#15181C] font-semibold text-white'
+                      : 'text-[#4A5159] hover:bg-[#FAFAF8]'
+                  }`}
+                >
+                  {entry.label}
+                </button>
+              ))}
+            </div>
+
+            {loading ? (
+              <div className="px-4 py-4"><SkeletonLines rows={4} /></div>
+            ) : notes.length === 0 ? (
+              <div className="px-3 py-4">
+                <EmptyState
+                  icon={<TruckIcon size={26} strokeWidth={1.5} />}
+                  title="No dispatch notes"
+                  description="Nothing in this period under this filter."
+                />
+              </div>
+            ) : (
+              <ul className="m-0 max-h-[640px] list-none overflow-y-auto p-0">
+                {notes.map((note) => {
+                  const chosen = note._id === selectedId
+                  const pct = totalCases(note) > 0 ? (linkedCases(note) / totalCases(note)) * 100 : 0
+                  return (
+                    <li key={note._id} className="border-b border-[#F3F2EF]">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(note._id)}
+                        className={`block w-full cursor-pointer px-4 py-3.5 text-left ${chosen ? 'bg-[#F3F8F6]' : 'hover:bg-[#FAFAF8]'}`}
+                        style={{ borderLeft: `3px solid ${chosen ? '#15594A' : 'transparent'}` }}
+                      >
+                        <span className="flex items-center justify-between gap-2.5">
+                          <span className="font-numeric text-[13px] font-semibold text-[#15181C]">
+                            {shortReference(note._id)}
+                          </span>
+                          <StatusPill status={note.status} />
+                        </span>
+                        <span className="mt-1.5 block truncate text-xs text-[#4A5159]">
+                          {note.company?.name} · {note.deliveryTo?.name}
+                        </span>
+                        <span className="mt-2.5 flex items-center gap-[9px]">
+                          <span className="h-1.5 flex-1 overflow-hidden rounded-[3px] bg-[#EFEEEA]">
+                            <span
+                              className="block h-full rounded-[3px]"
+                              style={{
+                                width: `${pct}%`,
+                                backgroundColor: pct >= 100 ? '#15594A' : '#C07A1E'
+                              }}
+                            />
+                          </span>
+                          <span className="font-numeric shrink-0 text-[11px] text-[#5A636D] tabular-nums">
+                            {formatQuantity(linkedCases(note))} / {formatQuantity(totalCases(note))}
+                          </span>
+                        </span>
+                        <span className="mt-[7px] flex items-center justify-between gap-2.5">
+                          <span className="font-numeric text-[11px] text-[#5A636D] tabular-nums">
+                            {formatDate(note.dateDispatched)}
+                          </span>
+                          <span className="font-numeric text-[11px] text-[#5A636D] tabular-nums">
+                            {formatQuantity(totalCases(note))} cases
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </section>
+
+          {/* Detail */}
+          <section className="flex min-w-0 flex-[999_1_560px] flex-col gap-3.5">
+            {!selected ? (
+              <div className="rounded-xl border border-[#E3E2DE] bg-white px-[18px] py-5">
+                <EmptyState
+                  icon={<TruckIcon size={26} strokeWidth={1.5} />}
+                  title="Nothing selected"
+                  description="Pick a dispatch note on the left to see its items and serial ranges."
+                />
+              </div>
+            ) : (
+              <>
+                <div className="overflow-hidden rounded-xl border border-[#E3E2DE] bg-white">
+                  <div className="flex flex-wrap items-center gap-3.5 border-b border-[#EDECE8] px-5 py-[18px]">
+                    <div className="min-w-0 flex-[1_1_260px]">
+                      <h2 className="m-0 flex items-center gap-2.5 text-[19px] font-semibold tracking-[-0.018em]">
+                        <span className="font-numeric">{shortReference(selected._id)}</span>
+                        <StatusPill status={selected.status} />
+                        <span
+                          className="inline-block rounded-[5px] px-2 py-[3px] text-[11px] font-semibold"
+                          style={{
+                            color: marketStyle(selected.market).fg,
+                            backgroundColor: marketStyle(selected.market).bg
+                          }}
+                        >
+                          {marketStyle(selected.market).label}
+                        </span>
+                      </h2>
+                      <p className="mt-1.5 mb-0 text-[12.5px] text-[#5A636D]">
+                        {selected.company?.name} · {selected.deliveryTo?.name} ·{' '}
+                        <span className="font-numeric tabular-nums">{formatDate(selected.dateDispatched)}</span>
+                        {selected.vehicleDetails?.vehicleNumber && (
+                          <> · {selected.vehicleDetails.vehicleNumber}
+                            {selected.vehicleDetails.driverName && ` (${selected.vehicleDetails.driverName})`}
+                          </>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">{statusActions()}</div>
+                  </div>
+
+                  {/* Linking progress */}
+                  {isFullyLinked(selected) ? (
+                    <div className="flex flex-wrap items-center gap-3.5 border-b border-[#C9DED6] bg-[#F3F8F6] px-5 py-3.5">
+                      <CheckIcon size={17} strokeWidth={2.2} />
+                      <span className="min-w-0 flex-[1_1_280px] text-[12.5px] text-[#0D3C32]">
+                        <strong className="font-semibold">Every case carries a serial range.</strong>{' '}
+                        {formatQuantity(totalCases(selected))} of {formatQuantity(totalCases(selected))} linked.
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-3.5 border-b border-[#EBD9AC] bg-[#FBF1DC] px-5 py-3.5">
+                      <LuTriangleAlert className="shrink-0 text-[#8A5A00]" />
+                      <span className="min-w-0 flex-[1_1_280px] text-[12.5px] text-[#5C3D06]">
+                        <strong className="font-semibold text-[#3F2A04]">
+                          {formatQuantity(linkedCases(selected))} of {formatQuantity(totalCases(selected))} cases carry a serial range.
+                        </strong>{' '}
+                        The note cannot be loaded until every case is linked.
+                      </span>
+                      <span className="h-2 max-w-[280px] flex-[1_1_200px] overflow-hidden rounded bg-[#EBD9AC]">
+                        <span
+                          className="block h-full rounded bg-[#C07A1E]"
+                          style={{
+                            width: `${totalCases(selected) > 0 ? (linkedCases(selected) / totalCases(selected)) * 100 : 0}%`
+                          }}
+                        />
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Items */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[640px] border-collapse">
+                      <thead>
+                        <tr>
+                          <th className={headerCell}>Item</th>
+                          <th className={`${headerCell} text-right`}>Cases</th>
+                          <th className={`${headerCell} text-right`}>Bottles / case</th>
+                          <th className={`${headerCell} text-right`}>Linked</th>
+                          <th className={`${headerCell} text-right`}>Remaining</th>
+                          <th className={headerCell} />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(selected.items || []).map((entry) => {
+                          const remaining = (entry.quantityInCases || 0) - (entry.EALIssuedQuantity || 0)
+                          const active = entry.item?._id === linkItemId
+                          return (
+                            <tr key={entry.item?._id || entry._id} className={active ? 'bg-[#F3F8F6]' : ''}>
+                              <td className={`${bodyCell} font-medium text-[#15181C]`}>
+                                <span className="block max-w-[280px] truncate" title={entry.item?.name || undefined}>
+                                  {entry.item?.name || '—'}
+                                </span>
+                              </td>
+                              <td className={`${bodyCell} font-numeric text-right tabular-nums`}>
+                                {formatQuantity(entry.quantityInCases)}
+                              </td>
+                              <td className={`${bodyCell} font-numeric text-right text-[#5A636D] tabular-nums`}>
+                                {entry.item?.bottlesPerCase ?? '—'}
+                              </td>
+                              <td
+                                className={`${bodyCell} font-numeric text-right font-medium tabular-nums`}
+                                style={{ color: remaining > TOLERANCE ? '#8A5A00' : '#15594A' }}
+                              >
+                                {formatQuantity(entry.EALIssuedQuantity || 0)}
+                              </td>
+                              <td className={`${bodyCell} font-numeric text-right font-semibold tabular-nums`}>
+                                {formatQuantity(remaining)}
+                              </td>
+                              <td className={`${bodyCell} text-right`}>
+                                {selected.status === 'final' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setLinkItemId(active ? null : entry.item?._id)
+                                      setNewEALData({ prefix: '', serialFrom: '', serialTo: '' })
+                                    }}
+                                    className={`h-[30px] cursor-pointer rounded-[7px] border px-[11px] text-xs font-medium ${
+                                      active
+                                        ? 'border-[#15594A] bg-[#15594A] text-white'
+                                        : 'border-[#D7D6D1] bg-white text-[#2A2F36] hover:bg-[#FAFAF8]'
+                                    }`}
+                                  >
+                                    {active ? 'Linking…' : 'Link EALs'}
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Linking panel */}
+                {linkItem && (
+                  <div className="overflow-hidden rounded-xl border border-[#C9DED6] bg-white">
+                    <div className="flex flex-wrap items-center gap-3 border-b border-[#DCEAE4] bg-[#F3F8F6] px-5 py-[15px]">
+                      <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg bg-[#15594A] text-white">
+                        <LuLink className="text-[15px]" />
+                      </span>
+                      <div className="min-w-0 flex-[1_1_260px]">
+                        <h3 className="m-0 truncate text-[14.5px] font-semibold tracking-[-0.01em]">
+                          Link serial ranges · {linkItem.item?.name}
+                        </h3>
+                        <p className="mt-[3px] mb-0 text-xs text-[#4A5159]">
+                          {formatQuantity(linkItem.EALIssuedQuantity || 0)} of{' '}
+                          {formatQuantity(linkItem.quantityInCases)} cases linked ·{' '}
+                          {formatQuantity(linkChecks.remaining)} still to link ·{' '}
+                          {linkItem.item?.bottlesPerCase} bottles per case
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setLinkItemId(null)}
+                        className="h-8 cursor-pointer rounded-[7px] border border-[#C9DED6] bg-white px-3 text-[12.5px] text-[#0D3C32]"
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    <form
+                      className="flex flex-wrap items-end gap-3.5 px-5 py-[18px]"
+                      onSubmit={(event) => { event.preventDefault(); handleAddEAL() }}
+                    >
+                      <div className="flex-[0_0_108px]">
+                        <label htmlFor="d-prefix" className="mb-1.5 block text-xs font-medium text-[#3C434B]">Prefix</label>
+                        <input
+                          id="d-prefix"
+                          value={newEALData.prefix}
+                          onChange={({ target }) => setNewEALData((previous) => ({ ...previous, prefix: target.value.toUpperCase() }))}
+                          maxLength={3}
+                          placeholder="ABC"
+                          className={`${fieldClass} tracking-[0.08em] uppercase`}
+                        />
+                      </div>
+                      <div className="min-w-0 flex-[1_1_170px]">
+                        <label htmlFor="d-from" className="mb-1.5 block text-xs font-medium text-[#3C434B]">Serial from</label>
+                        <input
+                          id="d-from"
+                          value={newEALData.serialFrom}
+                          onChange={({ target }) => setNewEALData((previous) => ({ ...previous, serialFrom: target.value }))}
+                          inputMode="numeric"
+                          placeholder="10 digits"
+                          className={fieldClass}
+                        />
+                      </div>
+                      <div className="min-w-0 flex-[1_1_170px]">
+                        <label htmlFor="d-to" className="mb-1.5 block text-xs font-medium text-[#3C434B]">Serial to</label>
+                        <input
+                          id="d-to"
+                          value={newEALData.serialTo}
+                          onChange={({ target }) => setNewEALData((previous) => ({ ...previous, serialTo: target.value }))}
+                          inputMode="numeric"
+                          placeholder="10 digits"
+                          className={fieldClass}
+                        />
+                      </div>
+                      <div className="flex-[0_0_150px]">
+                        <span className="mb-1.5 block text-xs font-medium text-[#3C434B]">Resolves to</span>
+                        <div className="flex h-[38px] items-center gap-[7px] rounded-lg border border-dashed border-[#C9DED6] bg-[#F3F8F6] px-[11px]">
+                          <span className="font-numeric text-[13.5px] font-semibold text-[#0D3C32] tabular-nums">
+                            {linkChecks.cases > 0 ? formatQuantity(linkChecks.cases) : '—'}
+                          </span>
+                          <span className="text-[11.5px] text-[#15594A]">cases</span>
+                        </div>
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={!linkChecks.valid || busy}
+                        className="h-[38px] cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-[15px] text-[13px] font-semibold text-white hover:bg-[#124C3F] disabled:cursor-not-allowed disabled:border-[#E3E2DE] disabled:bg-[#F2F1ED] disabled:text-[#A8ADB5]"
+                      >
+                        Add range
+                      </button>
+                    </form>
+
+                    <ul className="m-0 flex list-none flex-col gap-[7px] px-5 pb-4">
+                      {linkChecks.checks.map((check) => (
+                        <li
+                          key={check.text}
+                          className="flex items-start gap-2 text-xs"
+                          style={{ color: check.ok ? '#15594A' : '#5A636D' }}
+                        >
+                          <span className="mt-px shrink-0">
+                            {check.ok ? <CheckIcon size={14} strokeWidth={2.4} /> : <LuX className="text-[#A8ADB5]" />}
+                          </span>
+                          {check.text}
+                        </li>
+                      ))}
+                    </ul>
+
+                    <div className="border-t border-[#EDECE8]">
+                      <table className="w-full border-collapse">
+                        <thead>
+                          <tr>
+                            <th className={headerCell}>Range linked</th>
+                            <th className={`${headerCell} text-right`}>Labels</th>
+                            <th className={`${headerCell} text-right`}>Cases</th>
+                            <th className={headerCell} />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(linkItem.EALLinks || []).length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className={`${bodyCell} text-center text-[#5A636D]`}>
+                                No ranges linked to this item yet.
+                              </td>
+                            </tr>
+                          ) : (
+                            linkItem.EALLinks.map((link, index) => {
+                              const labels = link.serialTo - link.serialFrom + 1
+                              const perCase = linkItem.item?.bottlesPerCase || 0
+                              return (
+                                <tr key={`${link.prefix}-${link.serialFrom}-${index}`}>
+                                  <td className={bodyCell}>
+                                    <SerialRange
+                                      prefix={link.prefix}
+                                      serialFrom={link.serialFrom}
+                                      serialTo={link.serialTo}
+                                    />
+                                  </td>
+                                  <td className={`${bodyCell} font-numeric text-right tabular-nums`}>
+                                    {formatQuantity(labels)}
+                                  </td>
+                                  <td className={`${bodyCell} font-numeric text-right font-medium tabular-nums`}>
+                                    {perCase > 0 ? formatQuantity(labels / perCase) : '—'}
+                                  </td>
+                                  <td className={`${bodyCell} text-right`}>
+                                    {selected.status === 'final' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setUnlinkCandidate({ link, itemId: linkItem.item._id })}
+                                        className="h-7 cursor-pointer rounded-md border border-[#E3BDBB] bg-white px-2.5 text-xs text-[#9B2C2C] hover:bg-[#FCEBEA]"
+                                      >
+                                        Unlink
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              )
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+        </div>
+      </div>
+
+      {/* Add / edit note */}
+      <Modal
+        isOpen={formOpen}
+        onClose={() => setFormOpen(false)}
+        title={formDispatch?._id ? 'Update Dispatch' : 'Add Dispatch'}
+        styleClass="w-full"
+      >
+        <AddDispatchForm onSubmitDispatch={handleSubmitDispatch} dispatchDetails={formDispatch || []} />
+      </Modal>
+
+      {/* Vehicle details */}
+      <Modal
+        isOpen={vehicleOpen}
+        onClose={() => setVehicleOpen(false)}
+        title="Enter Vehicle Details"
+        styleClass="w-full max-w-md"
+      >
+        <div className="flex flex-col gap-3.5">
+          <p className="m-0 text-[12.5px] text-[#5A636D]">
+            Recording the vehicle marks this note as loaded.
+          </p>
+          {[
+            { key: 'vehicleNumber', label: 'Vehicle number' },
+            { key: 'driverName', label: 'Driver name' },
+            { key: 'driverContact', label: 'Driver contact' }
+          ].map((field) => (
+            <div key={field.key}>
+              <label htmlFor={field.key} className="mb-1.5 block text-xs font-medium text-[#3C434B]">
+                {field.label}
+              </label>
+              <input
+                id={field.key}
+                value={vehicleData[field.key]}
+                onChange={({ target }) => setVehicleData((previous) => ({ ...previous, [field.key]: target.value }))}
+                className="h-[38px] w-full rounded-lg border border-[#D7D6D1] bg-white px-[11px] text-[13.5px] outline-none focus:border-[#15594A] focus:ring-[3px] focus:ring-[#E7F0EC]"
+              />
+            </div>
+          ))}
+          <div className="flex justify-end gap-2.5 pt-1">
+            <button
+              type="button"
+              onClick={() => setVehicleOpen(false)}
+              className="h-9 cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-3.5 text-[13px] font-medium text-[#2A2F36]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={handleSubmitVehicleDetails}
+              className="h-9 cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-semibold text-white disabled:opacity-60"
+            >
+              Submit
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Unlink confirmation */}
+      <Modal
+        isOpen={Boolean(unlinkCandidate)}
+        onClose={() => { setUnlinkCandidate(null); setUnlinkConfirmText('') }}
+        title="Unlink EAL"
+        styleClass="w-full max-w-lg"
+      >
+        {unlinkCandidate && (
+          <div className="flex flex-col gap-3.5">
+            <div className="rounded-lg border border-[#E3E2DE] bg-[#FAFAF8] px-3.5 py-3">
+              <SerialRange
+                prefix={unlinkCandidate.link.prefix}
+                serialFrom={unlinkCandidate.link.serialFrom}
+                serialTo={unlinkCandidate.link.serialTo}
+              />
+              <p className="mt-1.5 mb-0 text-xs text-[#5A636D]">
+                {formatQuantity(unlinkCandidate.link.serialTo - unlinkCandidate.link.serialFrom + 1)} labels
+                will go back to stock.
+              </p>
+            </div>
+            <div>
+              <label htmlFor="unlink-confirm" className="mb-1.5 block text-[12.5px] text-[#3C434B]">
+                To confirm, type <strong className="font-numeric bg-[#F2F1ED] px-1">unlink</strong> below
+              </label>
+              <input
+                id="unlink-confirm"
+                value={unlinkConfirmText}
+                onChange={({ target }) => setUnlinkConfirmText(target.value)}
+                className="h-[38px] w-full rounded-lg border border-[#D7D6D1] bg-white px-[11px] text-[13.5px] outline-none focus:border-[#9B2C2C]"
+              />
+            </div>
+            <div className="flex justify-end gap-2.5">
               <button
-                className="px-4 py-2 rounded bg-gray-300 hover:bg-gray-400"
-                onClick={() => setopenDispatchModalLoad(false)}
+                type="button"
+                onClick={() => { setUnlinkCandidate(null); setUnlinkConfirmText('') }}
+                className="h-9 cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-3.5 text-[13px] font-medium text-[#2A2F36]"
               >
                 Cancel
               </button>
               <button
-                className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
-                onClick={() => handleSubmitVehicleDetails(dispatchData._id, vehicleData)}
+                type="button"
+                disabled={unlinkConfirmText !== 'unlink' || busy}
+                onClick={handleUnlinkEAL}
+                className="h-9 cursor-pointer rounded-lg border border-[#9B2C2C] bg-[#9B2C2C] px-3.5 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:border-[#E3E2DE] disabled:bg-[#F2F1ED] disabled:text-[#A8ADB5]"
               >
-                Submit
+                Confirm unlink
               </button>
             </div>
           </div>
-        </Modal>
-
-        {/* Modal for Viewing Link Dispatch Details */}
-        <Modal
-          isOpen={linkDispatchModalOpen}
-          onClose={() => {
-            setLinkDispatchModalOpen(false);
-            setLinkDispatchDetailsData(null);
-          }}
-          title="Link Dispatch Details"
-          styleClass="w-full max-w-4xl"
-        >
-          {linkDispatchDetailsData ? (
-            <div className="bg-gradient-to-br from-blue-50 to-white rounded-xl p-0">
-              {/* Section: Dispatch Info */}
-              <div className="px-8 pt-8 pb-4 border-b border-gray-200 rounded-t-xl">
-                <h2 className="text-2xl font-bold text-blue-900 mb-2">Dispatch Info</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-500">Company</span>
-                    <div className="font-semibold text-blue-900">{linkDispatchDetailsData?.company?.name}</div>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Dispatch Date</span>
-                    <div className="font-semibold">{formatDate(linkDispatchDetailsData?.dateDispatched)}</div>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Market</span>
-                    <div className="font-semibold capitalize">{linkDispatchDetailsData?.market}</div>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Delivery Depot</span>
-                    <div className="font-semibold">{linkDispatchDetailsData?.deliveryTo?.name}</div>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Vehicle No.</span>
-                    <div className="font-semibold">{linkDispatchDetailsData?.vehicleDetails?.vehicleNumber}</div>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Driver Name</span>
-                    <div className="font-semibold">{linkDispatchDetailsData?.vehicleDetails?.driverName} ({linkDispatchDetailsData?.vehicleDetails?.driverContact})</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Section: Items & EAL Links */}
-              <div className="px-8 py-8">
-                <h3 className="text-lg font-bold mb-6 text-gray-800">Items & EAL Links</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {linkDispatchDetailsData.items?.map((item, idx) => (
-                    <div key={idx} className="border border-gray-200 rounded-xl p-6 bg-blue-50 mb-4 shadow-sm">
-                      {/* Item Summary */}
-                      <div className="flex justify-between items-center mb-3">
-                        <h4 className="text-md font-bold text-blue-900">
-                          {item?.item?.name}
-                        </h4>
-                        <span className="text-sm text-gray-500">
-                          Quantity: <span className="font-semibold text-gray-700">{item.quantityInCases}</span> cases | Issued: <span className="font-semibold text-green-700">{item.EALIssuedQuantity || 0}</span> cases
-                        </span>
-                      </div>
-
-                      {/* EAL Links List */}
-                      {item?.EALLinks?.length > 0 ? (
-                        <div className="space-y-2">
-                          {item.EALLinks.map((link, linkIndex) => {
-                            const usedQty = (parseInt(link.serialTo) - parseInt(link.serialFrom) + 1) / item?.item?.bottlesPerCase;
-                            return (
-                              <div
-                                key={linkIndex}
-                                className="bg-white border border-gray-300 rounded-lg px-4 py-3 flex flex-col gap-1 shadow-sm"
-                              >
-                                <div className="flex gap-2 items-center">
-                                  <span className="font-bold text-blue-700 text-xs bg-blue-50 px-2 py-1 rounded">{link.prefix}</span>
-                                  <span className="text-xs text-gray-500">Serials:</span>
-                                  <span className="font-mono text-xs text-gray-800">{link.serialFrom.toString().padStart(10, '0')}</span>
-                                  <span className="text-xs">→</span>
-                                  <span className="font-mono text-xs text-gray-800">{link.serialTo.toString().padStart(10, '0')}</span>
-                                </div>
-                                <div className="text-xs text-gray-500">Used: <span className="font-semibold text-gray-700">{usedQty}</span> cases</div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="text-sm italic text-gray-400">No EALs linked for this item.</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Modal Footer */}
-              <div className="px-8 pb-8 flex justify-end">
-                <button
-                  onClick={() => setLinkDispatchModalOpen(false)}
-                  className="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded font-semibold"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          ) : (
-            <p className="text-gray-500">No dispatch selected.</p>
-          )}
-        </Modal>
-
-
-      </div>
+        )}
+      </Modal>
     </DashboardLayout>
-  );
-};
+  )
+}
 
-export default Dispatch;
+export default Dispatch

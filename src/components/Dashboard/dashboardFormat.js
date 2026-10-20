@@ -33,6 +33,9 @@ export const STATUS_STYLES = {
   'in-use': { label: 'In use', fg: '#15594A', bg: '#E7F0EC' },
   // Usage rows likewise: worked out from how many of the cases produced have
   // since been linked to a dispatch.
+  // Dispatch note statuses, in the order a note moves through them.
+  loaded: { label: 'Loaded', fg: '#1D4E89', bg: '#E8EFF8' },
+  delivered: { label: 'Delivered', fg: '#15594A', bg: '#E7F0EC' },
   'in-stock': { label: 'In stock', fg: '#15594A', bg: '#E7F0EC' },
   'part-dispatched': { label: 'Part dispatched', fg: '#8A5A00', bg: '#FBF1DC' },
   dispatched: { label: 'Dispatched', fg: '#1D4E89', bg: '#E8EFF8' },
