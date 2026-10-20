@@ -82,110 +82,108 @@ const Home = () => {
 
   return (
     <DashboardLayout activeMenu="Dashboard">
-      <div className="font-ui -mx-2 min-h-screen bg-[#F6F5F3] px-4 py-6 text-[#15181C] sm:px-7">
-        <div className="mx-auto flex max-w-[1400px] flex-col gap-5">
+      <div className="mx-auto flex max-w-[1400px] flex-col gap-5">
 
-          {/* Page header */}
-          <div className="flex flex-wrap items-end justify-between gap-3.5">
-            <div>
-              <h1 className="m-0 text-[25px] font-semibold tracking-[-0.022em]">
-                Operations overview
-              </h1>
-              <p className="mt-1.5 mb-0 text-[13px] text-[#5A636D]">
-                Excise label movement for the current period
-                {period?.previous &&
-                  `, against ${formatPeriod(period.previous.startDate, period.previous.endDate)}`}
-                .
-              </p>
-            </div>
-            <span className="flex h-9 items-center gap-2 rounded-lg border border-[#E3E2DE] bg-white px-3 text-[12.5px] text-[#2A2F36]">
-              <span className="text-[#5A636D]">
-                <CalendarIcon size={15} strokeWidth={1.8} />
-              </span>
-              <span className="font-numeric tabular-nums">
-                {period ? formatPeriod(period.startDate, period.endDate) : 'Month to date'}
-              </span>
+        {/* Page header */}
+        <div className="flex flex-wrap items-end justify-between gap-3.5">
+          <div>
+            <h1 className="m-0 text-[25px] font-semibold tracking-[-0.022em]">
+              Operations overview
+            </h1>
+            <p className="mt-1.5 mb-0 text-[13px] text-[#5A636D]">
+              Excise label movement for the current period
+              {period?.previous &&
+                `, against ${formatPeriod(period.previous.startDate, period.previous.endDate)}`}
+              .
+            </p>
+          </div>
+          <span className="flex h-9 items-center gap-2 rounded-lg border border-[#E3E2DE] bg-white px-3 text-[12.5px] text-[#2A2F36]">
+            <span className="text-[#5A636D]">
+              <CalendarIcon size={15} strokeWidth={1.8} />
             </span>
-          </div>
-
-          {error && (
-            <div className="flex flex-wrap items-center gap-3 rounded-[10px] border border-[#F3C9C7] bg-[#FCEBEA] px-4 py-3 text-[13px] text-[#7A2322]">
-              <span className="min-w-[220px] flex-1">{error}</span>
-              <button
-                type="button"
-                onClick={retry}
-                className="flex h-8 cursor-pointer items-center gap-2 rounded-lg border border-[#E1B4B2] bg-white px-3 text-[12.5px] font-medium text-[#7A2322]"
-              >
-                <RefreshIcon size={14} strokeWidth={1.8} />
-                Try again
-              </button>
-            </div>
-          )}
-
-          {!initialLoading && (
-            <AttentionBand
-              count={awaitingLinking?.count || 0}
-              casesOutstanding={awaitingLinking?.casesOutstanding || 0}
-            />
-          )}
-
-          {/* KPI row */}
-          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
-            {initialLoading ? (
-              Array.from({ length: 4 }).map((_, index) => <SkeletonKpiCard key={index} />)
-            ) : (
-              <>
-                <KpiCard
-                  label="Labels on hand"
-                  icon={<TagIcon size={15} />}
-                  kpi={kpis?.labelsOnHand}
-                  footnote={`${formatQuantity(kpis?.labelsOnHand?.openRanges || 0)} open ${
-                    kpis?.labelsOnHand?.openRanges === 1 ? 'range' : 'ranges'
-                  }`}
-                />
-                <KpiCard
-                  label="Issued this period"
-                  icon={<InboxIcon size={15} />}
-                  kpi={kpis?.issued}
-                  footnote={`${formatQuantity(kpis?.issued?.count || 0)} ${
-                    kpis?.issued?.count === 1 ? 'issuance' : 'issuances'
-                  }`}
-                />
-                <KpiCard
-                  label="Applied in production"
-                  icon={<ChartIcon size={15} />}
-                  kpi={kpis?.applied}
-                  footnote={
-                    kpis?.applied?.utilisationPct == null
-                      ? `${formatQuantity(kpis?.applied?.count || 0)} usage records`
-                      : `${kpis.applied.utilisationPct}% of labels available`
-                  }
-                />
-                <KpiCard
-                  label="Dispatched"
-                  icon={<TruckIcon size={15} />}
-                  kpi={kpis?.dispatched}
-                  footnote={`${formatQuantity(kpis?.dispatched?.count || 0)} dispatch ${
-                    kpis?.dispatched?.count === 1 ? 'note' : 'notes'
-                  }`}
-                />
-              </>
-            )}
-          </div>
-
-          {/* Stock and linking */}
-          <div className="flex flex-wrap items-start gap-3.5">
-            <StockByPack rows={stockByPack} loading={initialLoading} />
-            <AwaitingLinking notes={awaitingLinking?.notes || []} loading={initialLoading} />
-          </div>
-
-          <RecentMovement
-            rows={recentMovement}
-            loading={initialLoading || feedLoading}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-          />
+            <span className="font-numeric tabular-nums">
+              {period ? formatPeriod(period.startDate, period.endDate) : 'Month to date'}
+            </span>
+          </span>
         </div>
+
+        {error && (
+          <div className="flex flex-wrap items-center gap-3 rounded-[10px] border border-[#F3C9C7] bg-[#FCEBEA] px-4 py-3 text-[13px] text-[#7A2322]">
+            <span className="min-w-[220px] flex-1">{error}</span>
+            <button
+              type="button"
+              onClick={retry}
+              className="flex h-8 cursor-pointer items-center gap-2 rounded-lg border border-[#E1B4B2] bg-white px-3 text-[12.5px] font-medium text-[#7A2322]"
+            >
+              <RefreshIcon size={14} strokeWidth={1.8} />
+              Try again
+            </button>
+          </div>
+        )}
+
+        {!initialLoading && (
+          <AttentionBand
+            count={awaitingLinking?.count || 0}
+            casesOutstanding={awaitingLinking?.casesOutstanding || 0}
+          />
+        )}
+
+        {/* KPI row */}
+        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
+          {initialLoading ? (
+            Array.from({ length: 4 }).map((_, index) => <SkeletonKpiCard key={index} />)
+          ) : (
+            <>
+              <KpiCard
+                label="Labels on hand"
+                icon={<TagIcon size={15} />}
+                kpi={kpis?.labelsOnHand}
+                footnote={`${formatQuantity(kpis?.labelsOnHand?.openRanges || 0)} open ${
+                  kpis?.labelsOnHand?.openRanges === 1 ? 'range' : 'ranges'
+                }`}
+              />
+              <KpiCard
+                label="Issued this period"
+                icon={<InboxIcon size={15} />}
+                kpi={kpis?.issued}
+                footnote={`${formatQuantity(kpis?.issued?.count || 0)} ${
+                  kpis?.issued?.count === 1 ? 'issuance' : 'issuances'
+                }`}
+              />
+              <KpiCard
+                label="Applied in production"
+                icon={<ChartIcon size={15} />}
+                kpi={kpis?.applied}
+                footnote={
+                  kpis?.applied?.utilisationPct == null
+                    ? `${formatQuantity(kpis?.applied?.count || 0)} usage records`
+                    : `${kpis.applied.utilisationPct}% of labels available`
+                }
+              />
+              <KpiCard
+                label="Dispatched"
+                icon={<TruckIcon size={15} />}
+                kpi={kpis?.dispatched}
+                footnote={`${formatQuantity(kpis?.dispatched?.count || 0)} dispatch ${
+                  kpis?.dispatched?.count === 1 ? 'note' : 'notes'
+                }`}
+              />
+            </>
+          )}
+        </div>
+
+        {/* Stock and linking */}
+        <div className="flex flex-wrap items-start gap-3.5">
+          <StockByPack rows={stockByPack} loading={initialLoading} />
+          <AwaitingLinking notes={awaitingLinking?.notes || []} loading={initialLoading} />
+        </div>
+
+        <RecentMovement
+          rows={recentMovement}
+          loading={initialLoading || feedLoading}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
       </div>
     </DashboardLayout>
   );
