@@ -10,7 +10,7 @@ import SerialRange from '../../components/Dashboard/SerialRange'
 import StatusPill from '../../components/Dashboard/StatusPill'
 import { SkeletonTableRows } from '../../components/Dashboard/Skeleton'
 import { InboxIcon } from '../../components/Dashboard/icons'
-import { formatQuantity, marketStyle } from '../../components/Dashboard/dashboardFormat'
+import { formatQuantity, marketStyle, padSerial } from '../../components/Dashboard/dashboardFormat'
 import axiosInstance from '../../utils/axiosInstance'
 import { API_PATHS } from '../../utils/apiPaths'
 import { downloadCsv } from '../../utils/exportCsv'
@@ -58,6 +58,7 @@ const EALIssuance = () => {
   const [reloadToken, setReloadToken] = useState(0)
   const [removeCandidate, setRemoveCandidate] = useState(null)
   const [removing, setRemoving] = useState(false)
+  const [confirmRange, setConfirmRange] = useState({ serialFrom: '', serialTo: '' })
 
   const selectAllRef = useRef(null)
 
@@ -196,14 +197,29 @@ const EALIssuance = () => {
     )
   }
 
+  // Both ends must match the record exactly before the button comes alive.
+  const rangeConfirmed = Boolean(
+    removeCandidate &&
+    confirmRange.serialFrom.trim() !== '' &&
+    confirmRange.serialTo.trim() !== '' &&
+    Number(confirmRange.serialFrom) === removeCandidate.serialFrom &&
+    Number(confirmRange.serialTo) === removeCandidate.serialTo
+  )
+
   const handleRemoveIssuance = async () => {
     if (!removeCandidate) return
 
     try {
       setRemoving(true)
-      await axiosInstance.delete(`${API_PATHS.EALISSUANCE.DELETE_DATA}/${removeCandidate._id}`)
+      // The range goes with the request so the server can confirm it is
+      // removing the record the page was showing.
+      await axiosInstance.delete(
+        `${API_PATHS.EALISSUANCE.DELETE_DATA}/${removeCandidate._id}`,
+        { data: { serialFrom: confirmRange.serialFrom.trim(), serialTo: confirmRange.serialTo.trim() } }
+      )
       toast.success('EAL issuance removed')
       setRemoveCandidate(null)
+      setConfirmRange({ serialFrom: '', serialTo: '' })
       setReloadToken((token) => token + 1)
     } catch (err) {
       // The API refuses anything already drawn down and says why.
@@ -563,7 +579,7 @@ const EALIssuance = () => {
                             <button
                               type="button"
                               disabled={entry.used > 0}
-                              onClick={() => setRemoveCandidate(entry)}
+                              onClick={() => { setRemoveCandidate(entry); setConfirmRange({ serialFrom: '', serialTo: '' }) }}
                               aria-label={`Remove issuance ${entry.prefix}${entry.serialFrom}`}
                               title={
                                 entry.used > 0
@@ -646,7 +662,7 @@ const EALIssuance = () => {
 
       <Modal
         isOpen={Boolean(removeCandidate)}
-        onClose={() => setRemoveCandidate(null)}
+        onClose={() => { setRemoveCandidate(null); setConfirmRange({ serialFrom: '', serialTo: '' }) }}
         title="Remove EAL issuance"
         styleClass="w-full max-w-lg"
       >
@@ -682,17 +698,53 @@ const EALIssuance = () => {
               </dl>
             </div>
 
+            <div>
+              <p className="m-0 mb-2.5 text-[12.5px] text-[#3C434B]">
+                Type the serial range to confirm. It is checked here and again by
+                the server before anything is removed.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {[
+                  ['serialFrom', 'Serial from', removeCandidate.serialFrom],
+                  ['serialTo', 'Serial to', removeCandidate.serialTo]
+                ].map(([key, label, expected]) => {
+                  const typed = confirmRange[key].trim()
+                  const matches = typed !== '' && Number(typed) === expected
+                  return (
+                    <div key={key} className="min-w-0 flex-[1_1_170px]">
+                      <label htmlFor={`confirm-${key}`} className="mb-1.5 block text-xs font-medium text-[#3C434B]">
+                        {label}
+                      </label>
+                      <input
+                        id={`confirm-${key}`}
+                        value={confirmRange[key]}
+                        onChange={({ target }) =>
+                          setConfirmRange((previous) => ({ ...previous, [key]: target.value }))
+                        }
+                        inputMode="numeric"
+                        placeholder={padSerial(expected)}
+                        className="font-numeric h-[38px] w-full rounded-lg border bg-white px-[11px] text-[13.5px] tabular-nums text-[#15181C] outline-none"
+                        style={{
+                          borderColor: typed === '' ? '#D7D6D1' : matches ? '#15594A' : '#9B2C2C'
+                        }}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
             <div className="flex justify-end gap-2.5">
               <button
                 type="button"
-                onClick={() => setRemoveCandidate(null)}
+                onClick={() => { setRemoveCandidate(null); setConfirmRange({ serialFrom: '', serialTo: '' }) }}
                 className="h-9 cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-3.5 text-[13px] font-medium text-[#2A2F36]"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                disabled={removing}
+                disabled={removing || !rangeConfirmed}
                 onClick={handleRemoveIssuance}
                 className="h-9 cursor-pointer rounded-lg border border-[#9B2C2C] bg-[#9B2C2C] px-3.5 text-[13px] font-semibold text-white hover:bg-[#872626] disabled:cursor-not-allowed disabled:border-[#E3E2DE] disabled:bg-[#F2F1ED] disabled:text-[#A8ADB5]"
               >
