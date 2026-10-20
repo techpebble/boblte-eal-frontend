@@ -14,7 +14,10 @@ const DashboardLayout = ({ children, activeMenu }) => {
                     <div className="max-[1080px]:hidden">
                         <SideMenu activeMenu={activeMenu} />
                     </div>
-                    <div className="grow mx-2">{children}</div>
+                    {/* min-w-0 keeps this flex item from being widened by a page's
+                        widest table — without it the content column grows past
+                        the viewport and body's overflow-x:hidden clips it. */}
+                    <div className="grow min-w-0 mx-2">{children}</div>
                 </div>
             )}
         </div>
