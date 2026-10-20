@@ -92,10 +92,19 @@ function AddEALIssuanceForm({ onAddEALIssuance }) {
         return {
             count,
             cases: perCase > 0 && count > 0 ? count / perCase : 0,
+            wholeCases: perCase > 0 && count > 0 && count % perCase === 0,
             checks: [
                 { ok: /^[A-Z]{3}$/.test(EALIssuance.prefix.trim()), text: 'Prefix is three uppercase letters.' },
                 { ok: tenDigits, text: 'Both serials are ten digits.' },
-                { ok: count > 0, text: 'Serial to is above serial from.' }
+                { ok: count > 0, text: 'Serial to is above serial from.' },
+                {
+                    // Usage and dispatch both insist on whole cases, so labels
+                    // left over from a part case could never be drawn down.
+                    ok: perCase > 0 && count > 0 && count % perCase === 0,
+                    text: perCase
+                        ? `Divides into whole cases of ${perCase}.`
+                        : 'Pick a pack, so cases can be worked out.'
+                }
             ]
         };
     }, [EALIssuance.serialFrom, EALIssuance.serialTo, EALIssuance.prefix, selectedPack]);
@@ -209,7 +218,10 @@ function AddEALIssuanceForm({ onAddEALIssuance }) {
                             Equivalent cases
                         </p>
                         <p className="m-0 flex items-baseline gap-[7px]">
-                            <span className="font-numeric text-2xl font-semibold tracking-[-0.02em] tabular-nums text-[#0D3C32]">
+                            <span
+                                className="font-numeric text-2xl font-semibold tracking-[-0.02em] tabular-nums"
+                                style={{ color: derived.cases && !derived.wholeCases ? '#9B2C2C' : '#0D3C32' }}
+                            >
                                 {derived.cases ? formatQuantity(derived.cases) : '—'}
                             </span>
                             <span className="text-xs text-[#15594A]">
@@ -218,6 +230,21 @@ function AddEALIssuanceForm({ onAddEALIssuance }) {
                         </p>
                     </div>
                 </div>
+
+                {derived.cases > 0 && !derived.wholeCases && selectedPack && (
+                    <p className="m-0 mt-3 rounded-[10px] border border-[#F3C9C7] bg-[#FCEBEA] px-3.5 py-3 text-[12.5px] text-[#7A2322]">
+                        {formatQuantity(derived.count)} labels is a part case. At{' '}
+                        {selectedPack.bottlesPerCase} per case the nearest whole ones are{' '}
+                        <strong className="font-numeric font-semibold">
+                            {formatQuantity(Math.floor(derived.cases) * selectedPack.bottlesPerCase)}
+                        </strong>{' '}
+                        and{' '}
+                        <strong className="font-numeric font-semibold">
+                            {formatQuantity(Math.ceil(derived.cases) * selectedPack.bottlesPerCase)}
+                        </strong>{' '}
+                        labels — check the serial range on the release note.
+                    </p>
+                )}
 
                 <ValidationList checks={derived.checks} className="mt-3.5" />
             </FormSection>
