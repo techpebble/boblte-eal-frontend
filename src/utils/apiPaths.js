@@ -12,7 +12,8 @@ export const API_PATHS = {
     },
     EALISSUANCE: {
         GET_DATA: 'api/v1/eal_issuance',
-        ADD_DATA: 'api/v1/eal_issuance'
+        ADD_DATA: 'api/v1/eal_issuance',
+        DELETE_DATA: 'api/v1/eal_issuance'
     },
     EALUSAGE: {
         GET_DATA: 'api/v1/eal_usage',

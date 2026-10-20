@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { LuDownload, LuPlus, LuX } from 'react-icons/lu'
+import { LuDownload, LuPlus, LuTrash2, LuX } from 'react-icons/lu'
 import DashboardLayout from '../../components/layouts/DashboardLayout'
 import Modal from '../../components/Modal/Modal'
 import DateRangeModal from '../../components/Modal/DateRangeModal'
@@ -17,7 +17,7 @@ import { downloadCsv } from '../../utils/exportCsv'
 import { formatDate, formatDateToYYYYMMDD } from '../../utils/helper'
 
 const PAGE_SIZES = [25, 50, 100]
-const COLUMN_COUNT = 7
+const COLUMN_COUNT = 8
 
 const headerCell =
   'bg-[#FAFAF8] px-4 pt-3 pb-[11px] text-left text-[11px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase whitespace-nowrap'
@@ -56,6 +56,8 @@ const EALIssuance = () => {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const [reloadToken, setReloadToken] = useState(0)
+  const [removeCandidate, setRemoveCandidate] = useState(null)
+  const [removing, setRemoving] = useState(false)
 
   const selectAllRef = useRef(null)
 
@@ -192,6 +194,24 @@ const EALIssuance = () => {
       ],
       list
     )
+  }
+
+  const handleRemoveIssuance = async () => {
+    if (!removeCandidate) return
+
+    try {
+      setRemoving(true)
+      await axiosInstance.delete(`${API_PATHS.EALISSUANCE.DELETE_DATA}/${removeCandidate._id}`)
+      toast.success('EAL issuance removed')
+      setRemoveCandidate(null)
+      setReloadToken((token) => token + 1)
+    } catch (err) {
+      // The API refuses anything already drawn down and says why.
+      toast.error(err?.response?.data?.error || err?.response?.data?.message || 'Could not remove the issuance')
+      console.error('Error removing EAL Issuance:', err)
+    } finally {
+      setRemoving(false)
+    }
   }
 
   const clearFilters = () => {
@@ -451,7 +471,7 @@ const EALIssuance = () => {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[880px] table-fixed border-collapse">
+              <table className="w-full min-w-[932px] table-fixed border-collapse">
                 <thead>
                   <tr>
                     <th className={`${headerCell} w-11 pl-[18px]`}>
@@ -473,6 +493,7 @@ const EALIssuance = () => {
                     <th className={`${headerCell} w-[110px] text-right`}>Issued</th>
                     <th className={`${headerCell} w-[110px] text-right`}>Balance</th>
                     <th className={`${headerCell} w-[128px]`}>Status</th>
+                    <th className={`${headerCell} w-[52px] text-right`}>Remove</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -536,6 +557,24 @@ const EALIssuance = () => {
                           <td className={bodyCell}>
                             <StatusPill status={entry.status} />
                           </td>
+                          <td className={`${bodyCell} text-right`}>
+                            {/* Only an untouched range can go. The API checks
+                                this too; the button explains why when it cannot. */}
+                            <button
+                              type="button"
+                              disabled={entry.used > 0}
+                              onClick={() => setRemoveCandidate(entry)}
+                              aria-label={`Remove issuance ${entry.prefix}${entry.serialFrom}`}
+                              title={
+                                entry.used > 0
+                                  ? `${formatQuantity(entry.used)} labels have been applied, so this cannot be removed`
+                                  : 'Remove this issuance'
+                              }
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#5A636D] enabled:cursor-pointer enabled:hover:bg-[#FCEBEA] enabled:hover:text-[#9B2C2C] disabled:cursor-not-allowed disabled:text-[#D7D6D1]"
+                            >
+                              <LuTrash2 />
+                            </button>
+                          </td>
                         </tr>
                       )
                     })
@@ -556,7 +595,7 @@ const EALIssuance = () => {
                       <td className={`${footCell} font-numeric text-right tabular-nums`}>
                         {formatQuantity(totals.balance)}
                       </td>
-                      <td className={footCell} />
+                      <td className={footCell} colSpan={2} />
                     </tr>
                   </tfoot>
                 )}
@@ -604,6 +643,65 @@ const EALIssuance = () => {
           )}
         </section>
       </div>
+
+      <Modal
+        isOpen={Boolean(removeCandidate)}
+        onClose={() => setRemoveCandidate(null)}
+        title="Remove EAL issuance"
+        styleClass="w-full max-w-lg"
+      >
+        {removeCandidate && (
+          <div className="font-ui flex flex-col gap-4">
+            <div>
+              <h2 className="m-0 text-[19px] font-semibold tracking-[-0.018em]">Remove this issuance?</h2>
+              <p className="mt-1.5 mb-0 text-[12.5px] text-[#5A636D]">
+                Nothing has been applied from this range, so it can be taken off the
+                record. This cannot be undone.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-[#E3E2DE] bg-[#FAFAF8] px-3.5 py-3">
+              <SerialRange
+                compact
+                prefix={removeCandidate.prefix}
+                serialFrom={removeCandidate.serialFrom}
+                serialTo={removeCandidate.serialTo}
+              />
+              <dl className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-1.5">
+                {[
+                  ['Company', removeCandidate.company?.name],
+                  ['Pack', removeCandidate.pack?.name],
+                  ['Issued', `${formatQuantity(removeCandidate.issuedQuantity)} labels`],
+                  ['Date issued', formatDate(removeCandidate.dateIssued)]
+                ].map(([label, value]) => (
+                  <div key={label} className="flex items-baseline justify-between gap-2">
+                    <dt className="text-[11.5px] text-[#5A636D]">{label}</dt>
+                    <dd className="font-numeric m-0 truncate text-xs tabular-nums text-[#15181C]">{value || '—'}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+
+            <div className="flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setRemoveCandidate(null)}
+                className="h-9 cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-3.5 text-[13px] font-medium text-[#2A2F36]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={removing}
+                onClick={handleRemoveIssuance}
+                className="h-9 cursor-pointer rounded-lg border border-[#9B2C2C] bg-[#9B2C2C] px-3.5 text-[13px] font-semibold text-white hover:bg-[#872626] disabled:cursor-not-allowed disabled:border-[#E3E2DE] disabled:bg-[#F2F1ED] disabled:text-[#A8ADB5]"
+              >
+                {removing ? 'Removing…' : 'Remove issuance'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         isOpen={openAddEALIssuanceModal}
