@@ -31,6 +31,11 @@ export const STATUS_STYLES = {
   // the range is left.
   unused: { label: 'Unused', fg: '#1D4E89', bg: '#E8EFF8' },
   'in-use': { label: 'In use', fg: '#15594A', bg: '#E7F0EC' },
+  // Usage rows likewise: worked out from how many of the cases produced have
+  // since been linked to a dispatch.
+  'in-stock': { label: 'In stock', fg: '#15594A', bg: '#E7F0EC' },
+  'part-dispatched': { label: 'Part dispatched', fg: '#8A5A00', bg: '#FBF1DC' },
+  dispatched: { label: 'Dispatched', fg: '#1D4E89', bg: '#E8EFF8' },
 };
 
 export const MARKET_STYLES = {
