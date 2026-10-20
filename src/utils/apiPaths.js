@@ -34,6 +34,8 @@ export const API_PATHS = {
     },
     COMPANY: {
         GET_DATA: 'api/v1/companies',
+        ADD_DATA: 'api/v1/companies',
+        UPDATE_DATA: 'api/v1/companies',
     },
     DELIVERY: {
         GET_DATA: 'api/v1/delivery',

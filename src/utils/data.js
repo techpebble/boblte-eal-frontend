@@ -8,7 +8,8 @@ import {
     LuScanSearch,
     LuWine,
     LuPackage,
-    LuWarehouse
+    LuWarehouse,
+    LuBuilding2
 } from "react-icons/lu";
 
 // The menu is grouped so the eleven destinations read as four short lists
@@ -46,11 +47,10 @@ export const SIDE_MENU_GROUPS = [
         items: [
             { id: "08", label: "Items", icon: LuWine, path: "/items" },
             { id: "09", label: "Packs", icon: LuPackage, path: "/packs" },
-            { id: "10", label: "Delivery Depots", icon: LuWarehouse, path: "/delivery-depots" }
-            // Companies and Users belong here too, but Companies has no route
-            // in App.jsx and Users renders a placeholder, so listing them would
-            // only give a menu item that goes nowhere. Add them back with the
-            // pages.
+            { id: "10", label: "Delivery Depots", icon: LuWarehouse, path: "/delivery-depots" },
+            { id: "11", label: "Companies", icon: LuBuilding2, path: "/companies" }
+            // Users belongs here too, but the page is a placeholder and the API
+            // has no endpoint that lists users. Add it back with the page.
         ]
     }
 ];

@@ -21,6 +21,7 @@ import EALStock from "./pages/Dashboard/EALStock";
 import Items from "./pages/Dashboard/Items";
 import Packs from "./pages/Dashboard/Packs";
 import DeliveryDepots from "./pages/Dashboard/DeliveryDepots";
+import Companies from "./pages/Dashboard/Companies";
 
 const App = () => {
   return (
@@ -43,6 +44,7 @@ const App = () => {
             <Route path="/items" exact element={<ProtectedRoute><Items /></ProtectedRoute>} />
             <Route path="/packs" exact element={<ProtectedRoute><Packs /></ProtectedRoute>} />
             <Route path="/delivery-depots" exact element={<ProtectedRoute><DeliveryDepots /></ProtectedRoute>} />
+            <Route path="/companies" exact element={<ProtectedRoute><Companies /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </Router>
