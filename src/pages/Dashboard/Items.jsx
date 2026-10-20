@@ -14,7 +14,7 @@ import { downloadCsv } from '../../utils/exportCsv'
 import { formatDateToYYYYMMDD } from '../../utils/helper'
 
 const PAGE_SIZES = [25, 50, 100]
-const COLUMN_COUNT = 9
+const COLUMN_COUNT = 7
 
 const headerCell =
   'bg-[#FAFAF8] px-4 pt-3 pb-[11px] text-left text-[11px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase whitespace-nowrap'
@@ -146,7 +146,7 @@ const Items = () => {
       if (company && item.company?._id !== company) return false
       if (market && item.market !== market) return false
       if (!needle) return true
-      return [item.name, item.itemCode, item.brand]
+      return [item.name, item.alias, item.itemCode, item.brand]
         .filter(Boolean)
         .some((field) => String(field).toLowerCase().includes(needle))
     })
@@ -174,6 +174,7 @@ const Items = () => {
       [
         { header: 'Item code', value: (row) => row.itemCode },
         { header: 'Name', value: (row) => row.name },
+        { header: 'Short name', value: (row) => row.alias },
         { header: 'Brand', value: (row) => row.brand },
         { header: 'Company', value: (row) => row.company?.name },
         { header: 'Pack', value: (row) => row.pack?.name },
@@ -337,18 +338,19 @@ const Items = () => {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1040px] border-collapse">
+              <table className="w-full min-w-[720px] table-fixed border-collapse">
                 <thead>
                   <tr>
-                    <th className={headerCell}>Item code</th>
-                    <th className={headerCell}>Name</th>
-                    <th className={headerCell}>Brand</th>
+                    {/* Item and Company share whatever is left; the rest are
+                        sized to their contents so the table fits a 1366 screen
+                        without sideways scrolling. */}
+                    <th className={`${headerCell} w-[110px]`}>Code</th>
+                    <th className={headerCell}>Item</th>
                     <th className={headerCell}>Company</th>
-                    <th className={headerCell}>Pack</th>
-                    <th className={headerCell}>Market</th>
-                    <th className={`${headerCell} text-right`}>Bottles / case</th>
-                    <th className={headerCell}>Status</th>
-                    <th className={`${headerCell} w-16 text-right`}>Edit</th>
+                    <th className={`${headerCell} w-[150px]`}>Pack</th>
+                    <th className={`${headerCell} w-[96px]`}>Market</th>
+                    <th className={`${headerCell} w-[136px]`}>Status</th>
+                    <th className={`${headerCell} w-[52px] text-right`}>Edit</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -364,13 +366,22 @@ const Items = () => {
                             {item.itemCode}
                           </td>
                           <td className={`${bodyCell} font-medium text-[#15181C]`}>
-                            <span className="block max-w-[320px] truncate" title={item.name}>
-                              {item.name}
+                            <span className="block truncate" title={item.name}>
+                              {item.alias || item.name}
+                            </span>
+                            <span className="mt-0.5 block truncate text-[11.5px] font-normal text-[#5A636D]">
+                              {[item.brand, item.alias ? item.name : null].filter(Boolean).join(' · ') || '—'}
                             </span>
                           </td>
-                          <td className={bodyCell}>{item.brand || '—'}</td>
-                          <td className={`${bodyCell} whitespace-nowrap`}>{item.company?.name || '—'}</td>
-                          <td className={`${bodyCell} whitespace-nowrap`}>{item.pack?.name || '—'}</td>
+                          <td className={`${bodyCell} truncate`}>{item.company?.name || '—'}</td>
+                          <td className={`${bodyCell} whitespace-nowrap`}>
+                            {item.pack?.name || '—'}
+                            {item.bottlesPerCase != null && (
+                              <span className="font-numeric text-[#5A636D] tabular-nums">
+                                {' · '}{formatQuantity(item.bottlesPerCase)}/case
+                              </span>
+                            )}
+                          </td>
                           <td className={bodyCell}>
                             <span
                               className="inline-block rounded-[5px] px-2 py-[3px] text-[11px] font-semibold"
@@ -378,9 +389,6 @@ const Items = () => {
                             >
                               {tone.label}
                             </span>
-                          </td>
-                          <td className={`${bodyCell} font-numeric text-right text-[#5A636D] tabular-nums`}>
-                            {item.bottlesPerCase == null ? '—' : formatQuantity(item.bottlesPerCase)}
                           </td>
                           <td className={bodyCell}>
                             <button

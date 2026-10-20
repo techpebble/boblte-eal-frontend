@@ -5,13 +5,13 @@ import EmptyState from '../../components/Dashboard/EmptyState'
 import SerialRange from '../../components/Dashboard/SerialRange'
 import { SkeletonTableRows } from '../../components/Dashboard/Skeleton'
 import { InboxIcon } from '../../components/Dashboard/icons'
-import { formatQuantity, marketStyle } from '../../components/Dashboard/dashboardFormat'
+import { formatQuantity, itemLabel, marketStyle } from '../../components/Dashboard/dashboardFormat'
 import axiosInstance from '../../utils/axiosInstance'
 import { API_PATHS } from '../../utils/apiPaths'
 import { downloadCsv } from '../../utils/exportCsv'
 import { formatDate, formatDateToYYYYMMDD } from '../../utils/helper'
 
-const COLUMN_COUNT = 8
+const COLUMN_COUNT = 7
 
 const headerCell =
     'bg-[#FAFAF8] px-4 pt-3 pb-[11px] text-left text-[11px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase whitespace-nowrap'
@@ -116,7 +116,7 @@ const FinishedStock = () => {
             const head = groupBy === 'company' ? leaf.company : leaf.item
             const id = head?._id || 'unknown'
             if (!result.has(id)) {
-                result.set(id, { id, name: head?.name || '—', cases: 0, labels: 0, leaves: [] })
+                result.set(id, { id, name: (groupBy === 'item' ? itemLabel(head) : head?.name) || '—', cases: 0, labels: 0, leaves: [] })
             }
             const group = result.get(id)
             group.cases += leaf.cases
@@ -160,7 +160,7 @@ const FinishedStock = () => {
             `finished-stock-${formatDateToYYYYMMDD(new Date())}.csv`,
             [
                 { header: 'Company', value: (row) => row.company?.name },
-                { header: 'Item', value: (row) => row.item?.name },
+                { header: 'Item', value: (row) => itemLabel(row.item) },
                 { header: 'Pack', value: (row) => row.pack?.name },
                 { header: 'Market', value: (row) => row.market },
                 { header: 'Date used', value: (row) => formatDate(row.dateUsed) },
@@ -310,19 +310,18 @@ const FinishedStock = () => {
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full min-w-[1000px] border-collapse">
+                            <table className="w-full min-w-[860px] table-fixed border-collapse">
                                 <thead>
                                     <tr>
                                         <th className={`${headerCell} w-[38px] pl-[18px]`} />
                                         <th className={headerCell}>
                                             {groupBy === 'company' ? 'Company · item' : 'Item · company'}
                                         </th>
-                                        <th className={headerCell}>Market</th>
-                                        <th className={`${headerCell} text-right`}>Cases waiting</th>
-                                        <th className={`${headerCell} text-right`}>Labels</th>
-                                        <th className={`${headerCell} w-[200px]`}>Dispatched so far</th>
-                                        <th className={`${headerCell} text-right`}>Oldest run</th>
-                                        <th className={`${headerCell} text-right`}>Runs</th>
+                                        <th className={`${headerCell} w-[120px] text-right`}>Cases waiting</th>
+                                        <th className={`${headerCell} w-[110px] text-right`}>Labels</th>
+                                        <th className={`${headerCell} w-[170px]`}>Dispatched</th>
+                                        <th className={`${headerCell} w-[96px] text-right`}>Oldest</th>
+                                        <th className={`${headerCell} w-[80px] text-right`}>Runs</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -338,7 +337,6 @@ const FinishedStock = () => {
                                                             {group.name}
                                                         </span>
                                                     </td>
-                                                    <td className={groupCell} />
                                                     <td className={`${groupCell} font-numeric text-right font-semibold tabular-nums`}>
                                                         {formatQuantity(group.cases)}
                                                     </td>
@@ -355,7 +353,7 @@ const FinishedStock = () => {
                                                     const pct = leaf.producedCases > 0
                                                         ? (dispatched / leaf.producedCases) * 100
                                                         : 0
-                                                    const name = groupBy === 'company' ? leaf.item?.name : leaf.company?.name
+                                                    const name = groupBy === 'company' ? itemLabel(leaf.item) : leaf.company?.name
 
                                                     return (
                                                         <React.Fragment key={leaf.key}>
@@ -375,13 +373,11 @@ const FinishedStock = () => {
                                                                     </button>
                                                                 </td>
                                                                 <td className={`${bodyCell} pl-1`}>
-                                                                    <span className="block max-w-[380px] truncate" title={name || undefined}>
+                                                                    <span className="block truncate" title={name || undefined}>
                                                                         {name || '—'}
                                                                     </span>
-                                                                </td>
-                                                                <td className={bodyCell}>
                                                                     <span
-                                                                        className="inline-block rounded-[5px] px-2 py-[3px] text-[11px] font-semibold"
+                                                                        className="mt-1 inline-block rounded-[5px] px-1.5 py-px text-[10.5px] font-semibold"
                                                                         style={{ color: tone.fg, backgroundColor: tone.bg }}
                                                                     >
                                                                         {tone.label}
@@ -493,7 +489,7 @@ const FinishedStock = () => {
                                 {!loading && leaves.length > 0 && (
                                     <tfoot>
                                         <tr>
-                                            <td className={footCell} colSpan={3}>
+                                            <td className={footCell} colSpan={2}>
                                                 All {groupBy === 'company' ? 'companies' : 'items'}
                                             </td>
                                             <td className={`${footCell} font-numeric text-right tabular-nums`}>

@@ -11,7 +11,7 @@ import { API_PATHS } from '../../utils/apiPaths'
 import { downloadCsv } from '../../utils/exportCsv'
 import { formatDate, formatDateToYYYYMMDD } from '../../utils/helper'
 
-const COLUMN_COUNT = 8
+const COLUMN_COUNT = 7
 
 const headerCell =
   'bg-[#FAFAF8] px-4 pt-3 pb-[11px] text-left text-[11px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase whitespace-nowrap'
@@ -320,21 +320,20 @@ const EALStock = () => {
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full min-w-[980px] border-collapse">
+                            <table className="w-full min-w-[860px] table-fixed border-collapse">
                                 <thead>
                                     <tr>
                                         <th className={`${headerCell} w-[38px] pl-[18px]`} />
                                         <th className={headerCell}>
                                             {groupBy === 'company' ? 'Company · pack' : 'Pack · company'}
                                         </th>
-                                        <th className={headerCell}>Market</th>
-                                        <th className={`${headerCell} text-right`}>Labels on hand</th>
-                                        <th className={`${headerCell} text-right`}>Cases</th>
-                                        <th className={`${headerCell} w-[200px]`}>
+                                        <th className={`${headerCell} w-[130px] text-right`}>Labels on hand</th>
+                                        <th className={`${headerCell} w-[100px] text-right`}>Cases</th>
+                                        <th className={`${headerCell} w-[170px]`}>
                                             Share of {groupBy === 'company' ? 'company' : 'pack'}
                                         </th>
-                                        <th className={`${headerCell} text-right`}>Oldest range</th>
-                                        <th className={`${headerCell} text-right`}>Ranges</th>
+                                        <th className={`${headerCell} w-[96px] text-right`}>Oldest</th>
+                                        <th className={`${headerCell} w-[80px] text-right`}>Ranges</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -348,7 +347,6 @@ const EALStock = () => {
                                                     <td className={`${groupCell} font-semibold text-[#15181C]`}>
                                                         {group.name}
                                                     </td>
-                                                    <td className={groupCell} />
                                                     <td className={`${groupCell} font-numeric text-right font-semibold tabular-nums`}>
                                                         {formatQuantity(group.labels)}
                                                     </td>
@@ -381,10 +379,10 @@ const EALStock = () => {
                                                                         />
                                                                     </button>
                                                                 </td>
-                                                                <td className={`${bodyCell} pl-1`}>{name || '—'}</td>
-                                                                <td className={bodyCell}>
+                                                                <td className={`${bodyCell} pl-1`}>
+                                                                    <span className="block truncate" title={name || undefined}>{name || '—'}</span>
                                                                     <span
-                                                                        className="inline-block rounded-[5px] px-2 py-[3px] text-[11px] font-semibold"
+                                                                        className="mt-1 inline-block rounded-[5px] px-1.5 py-px text-[10.5px] font-semibold"
                                                                         style={{ color: tone.fg, backgroundColor: tone.bg }}
                                                                     >
                                                                         {tone.label}
@@ -500,7 +498,7 @@ const EALStock = () => {
                                 {!loading && leaves.length > 0 && (
                                     <tfoot>
                                         <tr>
-                                            <td className={footCell} colSpan={3}>
+                                            <td className={footCell} colSpan={2}>
                                                 All {groupBy === 'company' ? 'companies' : 'packs'}
                                             </td>
                                             <td className={`${footCell} font-numeric text-right tabular-nums`}>

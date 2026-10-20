@@ -17,7 +17,7 @@ import { downloadCsv } from '../../utils/exportCsv'
 import { formatDate, formatDateToYYYYMMDD } from '../../utils/helper'
 
 const PAGE_SIZES = [25, 50, 100]
-const COLUMN_COUNT = 10
+const COLUMN_COUNT = 7
 
 const headerCell =
   'bg-[#FAFAF8] px-4 pt-3 pb-[11px] text-left text-[11px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase whitespace-nowrap'
@@ -451,7 +451,7 @@ const EALIssuance = () => {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1040px] border-collapse">
+              <table className="w-full min-w-[880px] table-fixed border-collapse">
                 <thead>
                   <tr>
                     <th className={`${headerCell} w-11 pl-[18px]`}>
@@ -464,15 +464,15 @@ const EALIssuance = () => {
                         className="m-0 h-[15px] w-[15px] cursor-pointer accent-[#15594A]"
                       />
                     </th>
+                    {/* The date rides with the company and the market with the
+                        pack; used is issued less balance, and both of those are
+                        in the summary above. */}
                     <th className={headerCell}>Company</th>
-                    <th className={headerCell}>Date issued</th>
-                    <th className={headerCell}>Market</th>
-                    <th className={headerCell}>Pack</th>
-                    <th className={headerCell}>Serial range</th>
-                    <th className={`${headerCell} text-right`}>Issued</th>
-                    <th className={`${headerCell} text-right`}>Used</th>
-                    <th className={`${headerCell} text-right`}>Balance</th>
-                    <th className={headerCell}>Status</th>
+                    <th className={`${headerCell} w-[150px]`}>Pack</th>
+                    <th className={`${headerCell} w-[215px]`}>Serial range</th>
+                    <th className={`${headerCell} w-[110px] text-right`}>Issued</th>
+                    <th className={`${headerCell} w-[110px] text-right`}>Balance</th>
+                    <th className={`${headerCell} w-[128px]`}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -499,33 +499,36 @@ const EALIssuance = () => {
                               className="m-0 h-[15px] w-[15px] cursor-pointer accent-[#15594A]"
                             />
                           </td>
-                          <td className={`${bodyCell} font-medium whitespace-nowrap text-[#15181C]`}>
-                            {entry.company?.name || '—'}
-                          </td>
-                          <td className={`${bodyCell} font-numeric whitespace-nowrap tabular-nums`}>
-                            {formatDate(entry.dateIssued)}
+                          <td className={`${bodyCell} font-medium text-[#15181C]`}>
+                            <span className="block truncate" title={entry.company?.name || undefined}>
+                              {entry.company?.name || '—'}
+                            </span>
+                            <span className="font-numeric mt-0.5 block text-[11.5px] font-normal tabular-nums text-[#5A636D]">
+                              {formatDate(entry.dateIssued)}
+                            </span>
                           </td>
                           <td className={bodyCell}>
+                            <span className="block truncate">{entry.pack?.name || '—'}</span>
                             <span
-                              className="inline-block rounded-[5px] px-2 py-[3px] text-[11px] font-semibold"
+                              className="mt-1 inline-block rounded-[5px] px-1.5 py-px text-[10.5px] font-semibold"
                               style={{ color: tone.fg, backgroundColor: tone.bg }}
                             >
                               {tone.label}
                             </span>
                           </td>
-                          <td className={`${bodyCell} whitespace-nowrap`}>{entry.pack?.name || '—'}</td>
                           <td className={bodyCell}>
                             <SerialRange
+                              compact
                               prefix={entry.prefix}
                               serialFrom={entry.serialFrom}
                               serialTo={entry.serialTo}
                             />
+                            <span className="font-numeric mt-0.5 block text-[11px] tabular-nums text-[#5A636D]">
+                              {formatQuantity(entry.used)} used
+                            </span>
                           </td>
                           <td className={`${bodyCell} font-numeric text-right text-[#5A636D] tabular-nums`}>
                             {formatQuantity(entry.issuedQuantity)}
-                          </td>
-                          <td className={`${bodyCell} font-numeric text-right text-[#5A636D] tabular-nums`}>
-                            {formatQuantity(entry.used)}
                           </td>
                           <td className={`${bodyCell} font-numeric text-right font-semibold text-[#15181C] tabular-nums`}>
                             {formatQuantity(entry.balanceQuantity)}
@@ -541,14 +544,14 @@ const EALIssuance = () => {
                 {!loading && rows.length > 0 && (
                   <tfoot>
                     <tr>
-                      <td className={footCell} colSpan={6}>
+                      <td className={footCell} colSpan={4}>
                         Total · {rows.length} {rows.length === 1 ? 'issuance' : 'issuances'}
+                        <span className="font-numeric ml-2 font-normal text-[#5A636D] tabular-nums">
+                          {formatQuantity(totals.used)} used
+                        </span>
                       </td>
                       <td className={`${footCell} font-numeric text-right tabular-nums`}>
                         {formatQuantity(totals.issued)}
-                      </td>
-                      <td className={`${footCell} font-numeric text-right tabular-nums`}>
-                        {formatQuantity(totals.used)}
                       </td>
                       <td className={`${footCell} font-numeric text-right tabular-nums`}>
                         {formatQuantity(totals.balance)}

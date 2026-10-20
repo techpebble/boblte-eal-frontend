@@ -10,14 +10,14 @@ import SerialRange from '../../components/Dashboard/SerialRange'
 import StatusPill from '../../components/Dashboard/StatusPill'
 import { SkeletonTableRows } from '../../components/Dashboard/Skeleton'
 import { ChartIcon } from '../../components/Dashboard/icons'
-import { formatQuantity, marketStyle } from '../../components/Dashboard/dashboardFormat'
+import { formatQuantity, itemLabel, marketStyle } from '../../components/Dashboard/dashboardFormat'
 import axiosInstance from '../../utils/axiosInstance'
 import { API_PATHS } from '../../utils/apiPaths'
 import { downloadCsv } from '../../utils/exportCsv'
 import { formatDate, formatDateToYYYYMMDD } from '../../utils/helper'
 
 const PAGE_SIZES = [25, 50, 100]
-const COLUMN_COUNT = 10
+const COLUMN_COUNT = 7
 
 const headerCell =
   'bg-[#FAFAF8] px-4 pt-3 pb-[11px] text-left text-[11px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase whitespace-nowrap'
@@ -183,7 +183,7 @@ const EALUsage = () => {
         { header: 'Company', value: (row) => row.company?.name },
         { header: 'Date used', value: (row) => formatDate(row.dateUsed) },
         { header: 'Market', value: (row) => row.market },
-        { header: 'Item', value: (row) => row.item?.name },
+        { header: 'Item', value: (row) => itemLabel(row.item) },
         { header: 'Pack', value: (row) => row.pack?.name },
         { header: 'Prefix', value: (row) => row.prefix },
         { header: 'Serial from', value: (row) => String(row.serialFrom).padStart(10, '0') },
@@ -465,7 +465,7 @@ const EALUsage = () => {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1120px] border-collapse">
+              <table className="w-full min-w-[920px] table-fixed border-collapse">
                 <thead>
                   <tr>
                     <th className={`${headerCell} w-11 pl-[18px]`}>
@@ -478,15 +478,15 @@ const EALUsage = () => {
                         className="m-0 h-[15px] w-[15px] cursor-pointer accent-[#15594A]"
                       />
                     </th>
+                    {/* The date rides with the company, the pack and market
+                        with the item, and the label count with the range that
+                        defines it. */}
                     <th className={headerCell}>Company</th>
-                    <th className={headerCell}>Date used</th>
-                    <th className={headerCell}>Market</th>
                     <th className={headerCell}>Item</th>
-                    <th className={headerCell}>Serial range</th>
-                    <th className={`${headerCell} text-right`}>Labels</th>
-                    <th className={`${headerCell} text-right`}>Cases</th>
-                    <th className={`${headerCell} text-right`}>Awaiting dispatch</th>
-                    <th className={headerCell}>Status</th>
+                    <th className={`${headerCell} w-[215px]`}>Serial range</th>
+                    <th className={`${headerCell} w-[90px] text-right`}>Cases</th>
+                    <th className={`${headerCell} w-[108px] text-right`}>Awaiting</th>
+                    <th className={`${headerCell} w-[136px]`}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -513,39 +513,42 @@ const EALUsage = () => {
                               className="m-0 h-[15px] w-[15px] cursor-pointer accent-[#15594A]"
                             />
                           </td>
-                          <td className={`${bodyCell} font-medium whitespace-nowrap text-[#15181C]`}>
-                            {entry.company?.name || '—'}
-                          </td>
-                          <td className={`${bodyCell} font-numeric whitespace-nowrap tabular-nums`}>
-                            {formatDate(entry.dateUsed)}
-                          </td>
-                          <td className={bodyCell}>
-                            <span
-                              className="inline-block rounded-[5px] px-2 py-[3px] text-[11px] font-semibold"
-                              style={{ color: tone.fg, backgroundColor: tone.bg }}
-                            >
-                              {tone.label}
+                          <td className={`${bodyCell} font-medium text-[#15181C]`}>
+                            <span className="block truncate" title={entry.company?.name || undefined}>
+                              {entry.company?.name || '—'}
+                            </span>
+                            <span className="font-numeric mt-0.5 block text-[11.5px] font-normal tabular-nums text-[#5A636D]">
+                              {formatDate(entry.dateUsed)}
                             </span>
                           </td>
                           <td className={bodyCell}>
                             {/* Item names run long, so they are clipped rather
                                 than widening the table. */}
-                            <span className="block max-w-[240px] truncate text-[#15181C]" title={entry.item?.name || undefined}>
-                              {entry.item?.name || '—'}
+                            <span className="block truncate text-[#15181C]" title={entry.item?.name || undefined}>
+                              {itemLabel(entry.item) || '—'}
                             </span>
-                            {entry.pack?.name && (
-                              <span className="block text-[11.5px] text-[#5A636D]">{entry.pack.name}</span>
-                            )}
+                            <span className="mt-0.5 flex items-center gap-1.5">
+                              {entry.pack?.name && (
+                                <span className="truncate text-[11.5px] text-[#5A636D]">{entry.pack.name}</span>
+                              )}
+                              <span
+                                className="inline-block shrink-0 rounded-[5px] px-1.5 py-px text-[10.5px] font-semibold"
+                                style={{ color: tone.fg, backgroundColor: tone.bg }}
+                              >
+                                {tone.label}
+                              </span>
+                            </span>
                           </td>
                           <td className={bodyCell}>
                             <SerialRange
+                              compact
                               prefix={entry.prefix}
                               serialFrom={entry.serialFrom}
                               serialTo={entry.serialTo}
                             />
-                          </td>
-                          <td className={`${bodyCell} font-numeric text-right text-[#5A636D] tabular-nums`}>
-                            {formatQuantity(entry.usedQuantity)}
+                            <span className="font-numeric mt-0.5 block text-[11px] tabular-nums text-[#5A636D]">
+                              {formatQuantity(entry.usedQuantity)} labels
+                            </span>
                           </td>
                           <td className={`${bodyCell} font-numeric text-right tabular-nums`}>
                             {formatQuantity(entry.usedQuantityInCases)}
@@ -564,11 +567,11 @@ const EALUsage = () => {
                 {!loading && rows.length > 0 && (
                   <tfoot>
                     <tr>
-                      <td className={footCell} colSpan={6}>
+                      <td className={footCell} colSpan={4}>
                         Total · {rows.length} {rows.length === 1 ? 'entry' : 'entries'}
-                      </td>
-                      <td className={`${footCell} font-numeric text-right tabular-nums`}>
-                        {formatQuantity(totals.labels)}
+                        <span className="font-numeric ml-2 font-normal text-[#5A636D] tabular-nums">
+                          {formatQuantity(totals.labels)} labels
+                        </span>
                       </td>
                       <td className={`${footCell} font-numeric text-right tabular-nums`}>
                         {formatQuantity(totals.cases)}
