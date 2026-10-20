@@ -54,6 +54,21 @@
     @apply text-white bg-primary;
 }
 
+/* Printing a page should give the record, not the furniture around it.
+   `.print-hide` marks anything on a page that is for working, not for the
+   printed sheet. */
+@media print {
+    nav,
+    header,
+    .print-hide {
+        display: none !important;
+    }
+
+    body {
+        background: #fff;
+    }
+}
+
 /* Shared by the date filter on several pages, so it is styled to sit inside
    the redesigned filter bar rather than to stand out from it. */
 .date-range-btn {
