@@ -3,8 +3,7 @@ import toast from 'react-hot-toast'
 import { LuDownload, LuPencil, LuPlus, LuSearch } from 'react-icons/lu'
 import DashboardLayout from '../../components/layouts/DashboardLayout'
 import Modal from '../../components/Modal/Modal'
-import AddItemForm from '../../components/Items/AddItemForm'
-import EditItemForm from '../../components/Items/EditItemForm'
+import ItemForm from '../../components/Items/ItemForm'
 import EmptyState from '../../components/Dashboard/EmptyState'
 import { SkeletonTableRows } from '../../components/Dashboard/Skeleton'
 import { TagIcon } from '../../components/Dashboard/icons'
@@ -475,8 +474,8 @@ const Items = () => {
       </div>
 
       <Modal isOpen={openAddModal} onClose={() => setOpenAddModal(false)} title="Add Item">
-        <AddItemForm
-          onAddItem={handleAddItem}
+        <ItemForm
+          onSubmit={handleAddItem}
           loading={saving}
           companies={companies}
           packs={packs}
@@ -484,9 +483,9 @@ const Items = () => {
       </Modal>
 
       <Modal isOpen={openEditModal} onClose={() => setOpenEditModal(false)} title="Edit Item">
-        <EditItemForm
-          initialData={selectedItem}
-          onEditItem={handleEditItem}
+        <ItemForm
+          record={selectedItem}
+          onSubmit={(values) => handleEditItem(selectedItem._id, values)}
           loading={saving}
           companies={companies}
           packs={packs}

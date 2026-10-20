@@ -1,10 +1,13 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import Input from '../inputs/Input';
 import Select from '../inputs/Select';
+import FormSection from '../inputs/FormSection';
+import ValidationList from '../inputs/ValidationList';
 import { API_PATHS } from '../../utils/apiPaths';
 import axiosInstance from '../../utils/axiosInstance';
+import { formatQuantity } from '../Dashboard/dashboardFormat';
 
-function AddEALUsageForm({onAddEALUsage}) {
+function AddEALUsageForm({ onAddEALUsage }) {
     const [companies, setcompanies] = useState([]);
     const [items, setitems] = useState([]);
     const [packs, setpacks] = useState([]);
@@ -18,30 +21,30 @@ function AddEALUsageForm({onAddEALUsage}) {
         company: '',
         dateUsed: '',
         market: '',
-        item:'',
-        pack:'',
-        usedQuantityInCases:'',
-        prefix:'',
-        serialFrom:'',
-        serialTo:'',
+        item: '',
+        pack: '',
+        usedQuantityInCases: '',
+        prefix: '',
+        serialFrom: '',
+        serialTo: '',
         usedQuantity: ''
     });
 
-    const handleChange = (key, value) => setEALIssuance({...EALIssuance, [key]: value});
-    
+    const handleChange = (key, value) => setEALIssuance({ ...EALIssuance, [key]: value });
+
     // Get all companies
     const fetchCompanies = async () => {
         if (loading) return;
 
         try {
-        const response = await axiosInstance.get(API_PATHS.COMPANY.GET_DATA);
-        if (response.data) {
-            const companyOptions = response.data.data.map((company) => ({
-                value: company._id,
-                label: company.name,
-            }));
-            setcompanies(companyOptions);
-        }
+            const response = await axiosInstance.get(API_PATHS.COMPANY.GET_DATA);
+            if (response.data) {
+                const companyOptions = response.data.data.map((company) => ({
+                    value: company._id,
+                    label: company.name,
+                }));
+                setcompanies(companyOptions);
+            }
 
         } catch (error) {
             console.log("Something went wrong. Please try again.", error)
@@ -50,9 +53,9 @@ function AddEALUsageForm({onAddEALUsage}) {
         }
     }
 
-    // Get all companies
+    // Get the items that match the company, market and pack already chosen
     const fetchItems = async () => {
-        
+
         try {
             const para = '?isActive=true' + (EALIssuance.company ? '&company=' + EALIssuance.company : '') + (EALIssuance.market ? '&market=' + EALIssuance.market : '') + (EALIssuance.pack ? '&pack=' + EALIssuance.pack : '');
             const response = await axiosInstance.get(API_PATHS.ITEM.GET_DATA + para);
@@ -76,15 +79,15 @@ function AddEALUsageForm({onAddEALUsage}) {
         if (loading) return;
 
         try {
-        const response = await axiosInstance.get(API_PATHS.PACK.GET_DATA);
-        if (response.data) {
-            const packOptions = response.data.data.map((pack) => ({
-                value: pack._id,
-                label: pack.name,
-                bottlesPerCase: pack.bottlesPerCase
-            }));
-            setpacks(packOptions);
-        }
+            const response = await axiosInstance.get(API_PATHS.PACK.GET_DATA);
+            if (response.data) {
+                const packOptions = response.data.data.map((pack) => ({
+                    value: pack._id,
+                    label: pack.name,
+                    bottlesPerCase: pack.bottlesPerCase
+                }));
+                setpacks(packOptions);
+            }
 
         } catch (error) {
             console.log("Something went wrong. Please try again.", error)
@@ -96,15 +99,18 @@ function AddEALUsageForm({onAddEALUsage}) {
     useEffect(() => {
         fetchCompanies();
         fetchPacks();
-        return() => { }
+        return () => { }
     }, [])
 
+    const selectedPack = packs.find((option) => option.value === EALIssuance.pack) || null;
+
     useEffect(() => {
-        if (!EALIssuance.pack) return
-        const foundObject = packs.find((obj) => obj.value === EALIssuance.pack);
-        const usedQuantity = foundObject.bottlesPerCase * EALIssuance.usedQuantityInCases;
-        handleChange('usedQuantity', usedQuantity)
-    }, [EALIssuance.usedQuantityInCases, EALIssuance.pack])
+        // The pack may be set before its options have arrived, so this has to
+        // tolerate not finding one rather than reading through undefined.
+        if (!selectedPack) return
+        const usedQuantity = selectedPack.bottlesPerCase * Number(EALIssuance.usedQuantityInCases || 0);
+        handleChange('usedQuantity', usedQuantity || '')
+    }, [EALIssuance.usedQuantityInCases, selectedPack])
 
     useEffect(() => {
         // Check if all three required fields are selected
@@ -117,119 +123,157 @@ function AddEALUsageForm({onAddEALUsage}) {
         }
     }, [EALIssuance.company, EALIssuance.market, EALIssuance.pack]);
 
+    const checks = useMemo(() => {
+        const from = Number(EALIssuance.serialFrom);
+        const to = Number(EALIssuance.serialTo);
+        const tenDigits = /^\d{10}$/.test(EALIssuance.serialFrom) && /^\d{10}$/.test(EALIssuance.serialTo);
+        const count = tenDigits && to >= from ? to - from + 1 : 0;
+        const perCase = selectedPack?.bottlesPerCase || 0;
+        const expected = Number(EALIssuance.usedQuantity) || 0;
+
+        return [
+            { ok: /^[A-Z]{3}$/.test(EALIssuance.prefix.trim()), text: 'Prefix is three uppercase letters.' },
+            { ok: tenDigits, text: 'Both serials are ten digits.' },
+            {
+                ok: count > 0 && expected > 0 && count === expected,
+                text: `The range covers exactly the labels the cases need${expected ? ` (${formatQuantity(expected)})` : ''}.`
+            },
+            {
+                ok: perCase > 0 && count > 0 && count % perCase === 0 && to % perCase === 0 && (from - 1) % perCase === 0,
+                text: `The range closes on a whole case of ${perCase || '—'}.`
+            }
+        ];
+    }, [EALIssuance.serialFrom, EALIssuance.serialTo, EALIssuance.prefix, EALIssuance.usedQuantity, selectedPack]);
+
+    const ready = Boolean(
+        EALIssuance.company &&
+        EALIssuance.market &&
+        EALIssuance.pack &&
+        EALIssuance.item &&
+        EALIssuance.dateUsed &&
+        Number(EALIssuance.usedQuantityInCases) > 0 &&
+        checks.every((check) => check.ok)
+    );
+
     return (
-        <div className="space-y-4">
-            {/* Row 1: Company (6/12) & Market (6/12) */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                <div className="md:col-span-4">
+        <div className="font-ui flex flex-col gap-5">
+            <div>
+                <h2 className="m-0 text-[19px] font-semibold tracking-[-0.018em]">Record EAL usage</h2>
+                <p className="mt-1.5 mb-0 text-[12.5px] text-[#5A636D]">
+                    The labels applied on the line, and the cases they produced.
+                </p>
+            </div>
+
+            <FormSection title="Production run">
+                <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
                     <Select
                         label="Company"
                         placeholder="Select a Company"
                         value={EALIssuance.company}
-                        onChange={({target}) => handleChange('company', target.value)}
+                        onChange={({ target }) => handleChange('company', target.value)}
                         options={companies}
                     />
-                </div>
-                <div className="md:col-span-4">
                     <Select
                         label="Market"
                         placeholder="Select a Market"
                         value={EALIssuance.market}
-                        onChange={({target}) => handleChange('market', target.value)}
+                        onChange={({ target }) => handleChange('market', target.value)}
                         options={markets}
                     />
-                </div>
-                <div className="md:col-span-4">
                     <Select
                         label="Pack"
                         placeholder="Select a Pack"
                         value={EALIssuance.pack}
-                        onChange={({target}) => handleChange('pack', target.value)}
+                        onChange={({ target }) => handleChange('pack', target.value)}
                         options={packs}
+                        hint={selectedPack ? `${selectedPack.bottlesPerCase} bottles per case` : undefined}
                     />
-                </div>
-            </div>
-
-            {/* Row 2: Issued Date (6/12) & Pack Size (6/12) */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                <div className="md:col-span-4">
                     <Input
                         value={EALIssuance.dateUsed}
-                        onChange={({target}) => handleChange('dateUsed', target.value)}
-                        label="Used Date"
-                        placeholder="DD/MM/YYYY"
+                        onChange={({ target }) => handleChange('dateUsed', target.value)}
+                        label="Used date"
                         type="date"
                     />
-                </div>
-                <div className="md:col-span-4">
                     <Select
                         label="Item"
-                        placeholder="Select a Item"
+                        placeholder={items.length ? 'Select an Item' : 'Pick company, market and pack first'}
                         value={EALIssuance.item}
-                        onChange={({target}) => handleChange('item', target.value)}
+                        onChange={({ target }) => handleChange('item', target.value)}
                         options={items}
+                        searchable
+                        disabled={items.length === 0}
                     />
-                </div>
-                <div className="md:col-span-4">
                     <Input
                         value={EALIssuance.usedQuantityInCases}
-                        onChange={({target}) => handleChange('usedQuantityInCases', target.value)}
-                        label="Quantity Produced"
-                        placeholder="In Cases"
+                        onChange={({ target }) => handleChange('usedQuantityInCases', target.value)}
+                        label="Cases produced"
+                        placeholder="In cases"
                         type="text"
+                        mono
                     />
                 </div>
-            </div>
+            </FormSection>
 
-            {/* Row 3: Prefix (2/12), Serial From (5/12), Serial To (5/12) */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                <div className="md:col-span-3">
-                    <Input
-                        value={EALIssuance.prefix}
-                        onChange={({target}) => handleChange('prefix', target.value.toUpperCase())}
-                        label="Prefix"
-                        placeholder="Prefix (e.g., ABC)"
-                        type="text"
-                    />
+            <FormSection title="Serial range">
+                <div className="flex flex-wrap items-start gap-3.5">
+                    <div className="flex-[0_0_108px]">
+                        <Input
+                            value={EALIssuance.prefix}
+                            onChange={({ target }) => handleChange('prefix', target.value.toUpperCase())}
+                            label="Prefix"
+                            placeholder="ABC"
+                            type="text"
+                            mono
+                            className="uppercase tracking-[0.08em]"
+                        />
+                    </div>
+                    <div className="min-w-0 flex-[1_1_160px]">
+                        <Input
+                            value={EALIssuance.serialFrom}
+                            onChange={({ target }) => handleChange('serialFrom', target.value)}
+                            label="Serial from"
+                            placeholder="10 digits"
+                            type="text"
+                            mono
+                        />
+                    </div>
+                    <div className="min-w-0 flex-[1_1_160px]">
+                        <Input
+                            value={EALIssuance.serialTo}
+                            onChange={({ target }) => handleChange('serialTo', target.value)}
+                            label="Serial to"
+                            placeholder="10 digits"
+                            type="text"
+                            mono
+                        />
+                    </div>
+                    <div className="flex-[0_0_150px]">
+                        <Input
+                            value={EALIssuance.usedQuantity ? formatQuantity(EALIssuance.usedQuantity) : ''}
+                            label="Labels needed"
+                            placeholder="—"
+                            type="text"
+                            readOnly
+                            hint="Cases × bottles per case"
+                        />
+                    </div>
                 </div>
-                <div className="md:col-span-3">
-                    <Input
-                        value={EALIssuance.serialFrom}
-                        onChange={({target}) => handleChange('serialFrom', target.value)}
-                        label="Serial From"
-                        placeholder="Serial From (10 digits)"
-                        type="text"
-                    />
-                </div>
-                <div className="md:col-span-3">
-                    <Input
-                        value={EALIssuance.serialTo}
-                        onChange={({target}) => handleChange('serialTo', target.value)}
-                        label="Serial To"
-                        placeholder="Serial To (10 digits)"
-                        type="text"
-                    />
-                </div>
-                <div className="md:col-span-3">
-                    <Input
-                        value={EALIssuance.usedQuantity}
-                        label="Quantity Used"
-                        placeholder="Quantity"
-                        type="text"
-                        readOnly
-                    />
-                </div>
-            </div>
-            <div>
-                <div className="flex justify-end mt-6">
-                    <button
-                        type="button"
-                        className="add-btn add-btn-fill"
-                        onClick={()=>onAddEALUsage(EALIssuance) }
-                    >
-                        Add EAL Usage 
-                    </button>
-                </div>
+
+                <ValidationList checks={checks} className="mt-3.5" />
+            </FormSection>
+
+            <div className="flex flex-wrap items-center justify-end gap-3 border-t border-[#EDECE8] pt-4">
+                <p className="m-0 mr-auto text-[11.5px] text-[#5A636D]">
+                    This draws the range down from its issuance.
+                </p>
+                <button
+                    type="button"
+                    disabled={!ready}
+                    className="h-9 cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-4 text-[13px] font-semibold text-white hover:bg-[#124C3F] disabled:cursor-not-allowed disabled:border-[#E3E2DE] disabled:bg-[#F2F1ED] disabled:text-[#A8ADB5]"
+                    onClick={() => onAddEALUsage(EALIssuance)}
+                >
+                    Record usage
+                </button>
             </div>
         </div>
     )

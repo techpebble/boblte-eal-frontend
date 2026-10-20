@@ -1,10 +1,18 @@
 import React, { useEffect, useState } from 'react'
+import { LuPlus, LuTrash2 } from 'react-icons/lu';
+import ReactSelect from 'react-select';
 import Input from '../inputs/Input';
 import Select from '../inputs/Select';
+import { selectStyles } from '../inputs/selectStyles';
+import FormSection from '../inputs/FormSection';
 import { API_PATHS } from '../../utils/apiPaths';
 import axiosInstance from '../../utils/axiosInstance';
 import { formatDateToYYYYMMDD } from '../../utils/helper';
-import ReactSelect from 'react-select';
+import { formatQuantity } from '../Dashboard/dashboardFormat';
+
+const headerCell =
+    'bg-[#FAFAF8] px-3.5 pt-[11px] pb-2.5 text-left text-[11px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase whitespace-nowrap';
+const bodyCell = 'border-t border-[#EDECE8] px-3.5 py-2.5 text-[13px] text-[#2A2F36]';
 
 function AddDispatchForm({ onSubmitDispatch, dispatchDetails }) {
     const [companies, setcompanies] = useState([]);
@@ -94,7 +102,7 @@ function AddDispatchForm({ onSubmitDispatch, dispatchDetails }) {
         }
     }
 
-    // Get all companies
+    // Get the items that belong to the chosen company and market
     const fetchItems = async () => {
 
         try {
@@ -141,141 +149,168 @@ function AddDispatchForm({ onSubmitDispatch, dispatchDetails }) {
         }
     }, [Dispatch.company, Dispatch.market]);
 
+    const editing = Boolean(dispatchDetails?._id);
+    const filledLines = Dispatch.items.filter(
+        (line) => (line.item?._id || line.item) && Number(line.quantityInCases) > 0
+    ).length;
+    const ready = Boolean(
+        Dispatch.company && Dispatch.market && Dispatch.deliveryTo && Dispatch.dateDispatched && filledLines > 0
+    );
+
     return (
-        <div className="space-y-4">
-            {/* Row 1: Company (6/12) & Market (6/12) */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                <div className="md:col-span-6">
+        <div className="font-ui flex flex-col gap-5">
+            <div>
+                <h2 className="m-0 text-[19px] font-semibold tracking-[-0.018em]">
+                    {editing ? 'Update dispatch note' : 'New dispatch note'}
+                </h2>
+                <p className="mt-1.5 mb-0 text-[12.5px] text-[#5A636D]">
+                    What is going out and where to. Serial ranges are linked afterwards,
+                    once the note is finalised.
+                </p>
+            </div>
+
+            <FormSection title="Destination">
+                <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
                     <Select
                         label="Company"
-                        disabled={dispatchDetails?._id ? 'disabled' : ''}
+                        disabled={editing}
                         searchable={false}
                         placeholder="Select a Company"
                         value={Dispatch.company}
                         onChange={({ target }) => handleChange('company', target.value)}
                         options={companies}
+                        hint={editing ? 'Fixed once the note exists' : undefined}
                     />
-                </div>
-                <div className="md:col-span-6">
                     <Select
                         label="Market"
-                        disabled={dispatchDetails?._id ? 'disabled' : ''}
+                        disabled={editing}
                         searchable={false}
                         placeholder="Select a Market"
                         value={Dispatch.market}
                         onChange={({ target }) => handleChange('market', target.value)}
                         options={markets}
+                        hint={editing ? 'Fixed once the note exists' : undefined}
                     />
-                </div>
-            </div>
-
-            {/* Row 2: Issued Date (6/12) & Pack Size (6/12) */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                <div className="md:col-span-6">
                     <Input
                         value={Dispatch.dateDispatched}
                         onChange={({ target }) => handleChange('dateDispatched', target.value)}
-                        label="Dispatched Date"
-                        placeholder="DD/MM/YYYY"
+                        label="Dispatch date"
                         type="date"
                     />
-                </div>
-                <div className="md:col-span-6">
                     <Select
-                        label="Delivery To"
-                        searchable={true}
+                        label="Delivery depot"
+                        searchable
                         placeholder="Select Delivery Depot"
                         value={Dispatch.deliveryTo}
                         onChange={({ target }) => handleChange('deliveryTo', target.value)}
                         options={deliveryLocations}
                     />
                 </div>
-            </div>
+            </FormSection>
 
-            <div>
-                <h3 className='text-lg font-medium text-gray-900'>
-                    Items
-                </h3>
-            </div>
+            <FormSection
+                title="Items"
+                description={
+                    products.length === 0
+                        ? 'Choose a company and market first — the items offered depend on them.'
+                        : 'Quantities are in cases.'
+                }
+            >
+                <div className="overflow-hidden rounded-xl border border-[#E3E2DE]">
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[520px] border-collapse">
+                            <thead>
+                                <tr>
+                                    <th className={`${headerCell} w-10 pl-4`}>#</th>
+                                    <th className={headerCell}>Item</th>
+                                    <th className={`${headerCell} w-[140px] text-right`}>Cases</th>
+                                    <th className={`${headerCell} w-14`} />
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {Dispatch.items.map((itemForm, index) => (
+                                    <tr key={index}>
+                                        <td className={`${bodyCell} font-numeric pl-4 text-[#5A636D] tabular-nums`}>
+                                            {index + 1}
+                                        </td>
+                                        <td className={bodyCell}>
+                                            <ReactSelect
+                                                value={itemForm.item._id ? products.find(p => p.value === itemForm.item._id) || null : products.find(p => p.value === itemForm.item) || null}
+                                                onChange={(selected) => handleItemChange(index, 'item', selected ? selected.value : '')}
+                                                options={products}
+                                                placeholder="Select Item"
+                                                isSearchable
+                                                isDisabled={products.length === 0}
+                                                styles={selectStyles}
+                                            />
+                                        </td>
+                                        <td className={bodyCell}>
+                                            <input
+                                                type="text"
+                                                inputMode="numeric"
+                                                placeholder="0"
+                                                aria-label={`Cases for line ${index + 1}`}
+                                                className="font-numeric h-[38px] w-full rounded-lg border border-[#D7D6D1] bg-white px-[11px] text-right text-[13.5px] tabular-nums text-[#15181C] outline-none focus:border-[#15594A] focus:ring-[3px] focus:ring-[#E7F0EC]"
+                                                value={itemForm.quantityInCases}
+                                                onChange={({ target }) => handleItemChange(index, 'quantityInCases', target.value)}
+                                            />
+                                        </td>
+                                        <td className={`${bodyCell} text-center`}>
+                                            <button
+                                                type="button"
+                                                aria-label={`Remove line ${index + 1}`}
+                                                onClick={() => handleRemoveItem(index)}
+                                                className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-[#5A636D] hover:bg-[#FCEBEA] hover:text-[#9B2C2C]"
+                                            >
+                                                <LuTrash2 />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colSpan={2} className="border-t border-[#DEDDD8] bg-[#FAFAF8] px-3.5 py-3 text-right text-[13px] font-semibold text-[#3C434B]">
+                                        Total
+                                    </td>
+                                    <td className="font-numeric border-t border-[#DEDDD8] bg-[#FAFAF8] px-3.5 py-3 text-right text-[13px] font-semibold tabular-nums">
+                                        {formatQuantity(getTotalQuantity())}
+                                    </td>
+                                    <td className="border-t border-[#DEDDD8] bg-[#FAFAF8]" />
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
 
-            <table className="table-auto min-w-full border border-gray-200 text-sm text-left text-gray-700">
-                <thead className="bg-gray-100 text-xs text-gray-700 uppercase">
-                    <tr>
-                        <th className="w-1/12 px-4 py-3 border">Si. No.</th>
-                        <th className="w-6/12 px-4 py-3 border">Item</th>
-                        <th className="w-3/12 px-4 py-3 border">Quantity</th>
-                        <th className="w-2/12 px-4 py-3 border">Delete</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {Dispatch.items.map((itemForm, index) => (
-                        <tr key={index} className="bg-white border-b hover:bg-gray-50">
-                            <td className='px-4 py-3 border'>{index + 1}</td>
-                            <td className='px-4 py-3 border'>
-                                <ReactSelect
-                                    value={itemForm.item._id ? products.find(p => p.value === itemForm.item._id) || null : products.find(p => p.value === itemForm.item) || null}
-                                    onChange={(selected) => handleItemChange(index, 'item', selected ? selected.value : '')}
-                                    options={products}
-                                    placeholder="Select Item"
-                                    isSearchable
-                                    styles={{
-                                        control: (base) => ({
-                                            ...base,
-                                            backgroundColor: 'transparent',
-                                            borderColor: '#d1d5db', // Tailwind's gray-300
-                                            border: 0,
-                                            minHeight: '36px',
-                                            fontSize: '0.875rem',
-                                        }),
-                                        menu: (base) => ({
-                                            ...base,
-                                            zIndex: 100,
-                                        }),
-                                    }}
-                                />
-                            </td>
-                            <td className='px-4 py-3 border'>
-                                <input
-                                    type='text'
-                                    placeholder='Quantity'
-                                    className='w-full bg-transparent outline-none'
-                                    value={itemForm.quantityInCases}
-                                    onChange={({ target }) => handleItemChange(index, 'quantityInCases', target.value)}
-                                />
-                            </td>
-                            <td className='px-4 py-3 border text-center text-red-600 cursor-pointer' onClick={() => handleRemoveItem(index)}>
-                                ❌
-                            </td>
-                        </tr>
-                    ))}
-                    <tr className="bg-gray-50 font-semibold">
-                        <td colSpan="2" className="px-4 py-3 border text-right">Total</td>
-                        <td className="px-4 py-3 border">{getTotalQuantity()}</td>
-                        <td className="px-4 py-3 border"></td>
-                    </tr>
-                </tbody>
+                    <div className="border-t border-[#EDECE8] px-3.5 py-2.5">
+                        <button
+                            type="button"
+                            onClick={handleAddItem}
+                            disabled={products.length === 0}
+                            className="flex h-8 cursor-pointer items-center gap-[7px] rounded-[7px] border border-dashed border-[#D7D6D1] px-3 text-[12.5px] font-medium text-[#2A2F36] hover:bg-[#FAFAF8] disabled:cursor-not-allowed disabled:text-[#A8ADB5]"
+                        >
+                            <LuPlus />
+                            Add another item
+                        </button>
+                    </div>
+                </div>
+            </FormSection>
 
-            </table>
-
-            <div className="flex justify-between mt-4">
+            <div className="flex flex-wrap items-center justify-end gap-3 border-t border-[#EDECE8] pt-4">
+                <p className="m-0 mr-auto text-[11.5px] text-[#5A636D]">
+                    {filledLines === 0
+                        ? 'Add at least one item with a quantity.'
+                        : `${filledLines} ${filledLines === 1 ? 'line' : 'lines'} · ${formatQuantity(getTotalQuantity())} cases`}
+                </p>
                 <button
                     type="button"
-                    className="text-blue-600 underline"
-                    onClick={handleAddItem}
-                    disabled={products.length === 0}
-                >
-                    + Add another item
-                </button>
-
-                <button
-                    type="button"
-                    className="add-btn add-btn-fill"
+                    disabled={!ready}
+                    className="h-9 cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-4 text-[13px] font-semibold text-white hover:bg-[#124C3F] disabled:cursor-not-allowed disabled:border-[#E3E2DE] disabled:bg-[#F2F1ED] disabled:text-[#A8ADB5]"
                     onClick={() => onSubmitDispatch(Dispatch)}
                 >
-                    {dispatchDetails?._id ? 'Update Dispatch' : 'Add Dispatch'}
+                    {editing ? 'Update dispatch' : 'Create dispatch note'}
                 </button>
             </div>
-
         </div>
     )
 }
