@@ -27,7 +27,23 @@ export const STATUS_STYLES = {
   draft: { label: 'Draft', fg: '#8A5A00', bg: '#FBF1DC' },
   voided: { label: 'Voided', fg: '#9B2C2C', bg: '#FCEBEA' },
   exhausted: { label: 'Exhausted', fg: '#5A636D', bg: '#F0EFEC' },
+  // Issuance rows carry no status field; these are worked out from how much of
+  // the range is left.
+  unused: { label: 'Unused', fg: '#1D4E89', bg: '#E8EFF8' },
+  'in-use': { label: 'In use', fg: '#15594A', bg: '#E7F0EC' },
 };
+
+export const MARKET_STYLES = {
+  local: { label: 'Local', fg: '#15594A', bg: '#E7F0EC' },
+  export: { label: 'Export', fg: '#7A3E12', bg: '#F7EADC' },
+};
+
+export const marketStyle = (market) =>
+  MARKET_STYLES[String(market || '').toLowerCase()] || {
+    label: market ? String(market) : '—',
+    fg: INK_MUTED,
+    bg: '#F0EFEC',
+  };
 
 export const statusStyle = (status) =>
   STATUS_STYLES[String(status || '').toLowerCase()] || {

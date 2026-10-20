@@ -1,71 +1,219 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import toast from 'react-hot-toast'
+import { LuDownload, LuPlus, LuX } from 'react-icons/lu'
 import DashboardLayout from '../../components/layouts/DashboardLayout'
-import axiosInstance from '../../utils/axiosInstance';
-import { API_PATHS } from '../../utils/apiPaths';
-import Modal from '../../components/Modal/Modal';
-import AddEALIssuanceForm from '../../components/EALIssuance/AddEALIssuanceForm';
-import toast from 'react-hot-toast';
-import DateRangeModal from '../../components/Modal/DateRangeModal';
-import { formatDate, formatDateToYYYYMMDD } from '../../utils/helper';
-import { LuPlus } from 'react-icons/lu'
-import LoadingOverlay from '../../components/LoadingOverlay';
+import Modal from '../../components/Modal/Modal'
+import DateRangeModal from '../../components/Modal/DateRangeModal'
+import AddEALIssuanceForm from '../../components/EALIssuance/AddEALIssuanceForm'
+import EmptyState from '../../components/Dashboard/EmptyState'
+import SerialRange from '../../components/Dashboard/SerialRange'
+import StatusPill from '../../components/Dashboard/StatusPill'
+import { SkeletonTableRows } from '../../components/Dashboard/Skeleton'
+import { InboxIcon } from '../../components/Dashboard/icons'
+import { formatQuantity, marketStyle } from '../../components/Dashboard/dashboardFormat'
+import axiosInstance from '../../utils/axiosInstance'
+import { API_PATHS } from '../../utils/apiPaths'
+import { downloadCsv } from '../../utils/exportCsv'
+import { formatDate, formatDateToYYYYMMDD } from '../../utils/helper'
+
+const PAGE_SIZES = [25, 50, 100]
+const COLUMN_COUNT = 10
+
+const headerCell =
+  'bg-[#FAFAF8] px-4 pt-3 pb-[11px] text-left text-[11px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase whitespace-nowrap'
+const bodyCell = 'border-t border-[#EDECE8] px-4 py-[13px] text-[13px] text-[#2A2F36]'
+const footCell = 'border-t border-[#DEDDD8] bg-[#FAFAF8] px-4 py-[13px] text-[13px] font-semibold'
+
+/** The API has no status field, so it is worked out from the balance. */
+const statusOf = (entry) => {
+  if (!entry.balanceQuantity) return 'exhausted'
+  if (entry.balanceQuantity >= entry.issuedQuantity) return 'unused'
+  return 'in-use'
+}
+
+const monthToDate = () => {
+  const now = new Date()
+  return { startDate: new Date(now.getFullYear(), now.getMonth(), 1), endDate: now, key: 'selection' }
+}
 
 const EALIssuance = () => {
-  const [openAddEALIssuanceModal, setOpenAddEALIssuanceModal] = useState(false);
-  const [EALIssuanceData, setEALIssuanceData] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [openDeleteAlert, setopenDeleteAlert] = useState({
-    show: false,
-    data: null
-  });
+  const [openAddEALIssuanceModal, setOpenAddEALIssuanceModal] = useState(false)
+  const [EALIssuanceData, setEALIssuanceData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
-  // DateRange Start
-    const [dateRange, setDateRange] = useState({
-      startDate: new Date(),
-      endDate: new Date(),
-      key: 'selection',
-    });
-  
-    const onApplyDateRange = (selectedRange) => {
-      setDateRange(selectedRange);
-      fetchEALIssuanceDetails(selectedRange); // Pass selected range for filtered data
-    };
-    // DateRange End
+  // Company and market narrow the query itself; pack is not a filter the API
+  // takes, so it is applied to the rows that come back.
+  const [dateRange, setDateRange] = useState(monthToDate)
+  const [company, setCompany] = useState('')
+  const [market, setMarket] = useState('')
+  const [pack, setPack] = useState('')
+
+  const [companies, setCompanies] = useState([])
+  const [packs, setPacks] = useState([])
+
+  const [selected, setSelected] = useState(() => new Set())
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
+  const [reloadToken, setReloadToken] = useState(0)
+
+  const selectAllRef = useRef(null)
+
+  const onApplyDateRange = (selectedRange) => setDateRange(selectedRange)
 
   // Get all EAL Issuance details
-  const fetchEALIssuanceDetails = async (selectedRange = dateRange) => {
-    if (loading) return;
-    setLoading(true);
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
 
-    try {
-      const url = API_PATHS.EALISSUANCE.GET_DATA + `?startDate=${formatDateToYYYYMMDD(selectedRange.startDate)}&endDate=${formatDateToYYYYMMDD(selectedRange.endDate)}`;
-      const response = await axiosInstance.get(url);
-
-      if (response.data) {
-        setEALIssuanceData(response.data);
+    const fetchEALIssuanceDetails = async () => {
+      try {
+        const response = await axiosInstance.get(API_PATHS.EALISSUANCE.GET_DATA, {
+          params: {
+            startDate: formatDateToYYYYMMDD(dateRange.startDate),
+            endDate: formatDateToYYYYMMDD(dateRange.endDate),
+            ...(company ? { company } : {}),
+            ...(market ? { market } : {})
+          }
+        })
+        if (cancelled) return
+        setEALIssuanceData(response.data)
+      } catch (err) {
+        if (cancelled) return
+        console.log('Something went wrong. Please try again.', err)
+        setError(err?.response?.data?.message || 'Could not load the issuance records.')
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-
-    } catch (error) {
-      console.log("Something went wrong. Please try again.", error)
-    } finally {
-      setLoading(false);
     }
+
+    fetchEALIssuanceDetails()
+    return () => { cancelled = true }
+  }, [dateRange, company, market, reloadToken])
+
+  // Options for the filter bar
+  useEffect(() => {
+    const fetchOptions = async () => {
+      try {
+        const [companyRes, packRes] = await Promise.all([
+          axiosInstance.get(API_PATHS.COMPANY.GET_DATA),
+          axiosInstance.get(API_PATHS.PACK.GET_DATA)
+        ])
+        setCompanies(companyRes.data?.data || companyRes.data || [])
+        setPacks(packRes.data?.data || packRes.data || [])
+      } catch (err) {
+        console.log('Could not load the filter options.', err)
+      }
+    }
+    fetchOptions()
+  }, [])
+
+  const rows = useMemo(() => {
+    const entries = Array.isArray(EALIssuanceData?.data) ? EALIssuanceData.data : []
+    return entries
+      .filter((entry) => !pack || entry.pack?._id === pack)
+      .map((entry) => ({
+        ...entry,
+        used: (entry.issuedQuantity || 0) - (entry.balanceQuantity || 0),
+        status: statusOf(entry)
+      }))
+  }, [EALIssuanceData, pack])
+
+  // Totals follow what is on screen, so the footer always agrees with the rows.
+  const totals = useMemo(
+    () =>
+      rows.reduce(
+        (sum, row) => ({
+          issued: sum.issued + (row.issuedQuantity || 0),
+          used: sum.used + row.used,
+          balance: sum.balance + (row.balanceQuantity || 0)
+        }),
+        { issued: 0, used: 0, balance: 0 }
+      ),
+    [rows]
+  )
+
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize))
+  const currentPage = Math.min(page, pageCount)
+  const pageRows = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  const filtersActive = Boolean(company || market || pack)
+
+  useEffect(() => { setPage(1) }, [dateRange, company, market, pack, pageSize])
+
+  // A row that is no longer listed should not stay selected behind the scenes.
+  useEffect(() => {
+    setSelected((previous) => {
+      if (previous.size === 0) return previous
+      const visible = new Set(rows.map((row) => row._id))
+      const next = new Set([...previous].filter((id) => visible.has(id)))
+      return next.size === previous.size ? previous : next
+    })
+  }, [rows])
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = selected.size > 0 && selected.size < rows.length
+    }
+  }, [selected, rows.length])
+
+  const toggleRow = (id) =>
+    setSelected((previous) => {
+      const next = new Set(previous)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const toggleAll = () =>
+    setSelected((previous) =>
+      previous.size === rows.length ? new Set() : new Set(rows.map((row) => row._id))
+    )
+
+  const selectedRows = rows.filter((row) => selected.has(row._id))
+  const selectedLabels = selectedRows.reduce((sum, row) => sum + (row.issuedQuantity || 0), 0)
+
+  const exportRows = (list, suffix) => {
+    if (list.length === 0) return
+    downloadCsv(
+      `eal-issuance-${formatDateToYYYYMMDD(dateRange.startDate)}-to-${formatDateToYYYYMMDD(dateRange.endDate)}${suffix}.csv`,
+      [
+        { header: 'Company', value: (row) => row.company?.name },
+        { header: 'Date issued', value: (row) => formatDate(row.dateIssued) },
+        { header: 'Market', value: (row) => row.market },
+        { header: 'Pack', value: (row) => row.pack?.name },
+        { header: 'Prefix', value: (row) => row.prefix },
+        { header: 'Serial from', value: (row) => String(row.serialFrom).padStart(10, '0') },
+        { header: 'Serial to', value: (row) => String(row.serialTo).padStart(10, '0') },
+        { header: 'Issued', value: (row) => row.issuedQuantity },
+        { header: 'Used', value: (row) => row.used },
+        { header: 'Balance', value: (row) => row.balanceQuantity }
+      ],
+      list
+    )
+  }
+
+  const clearFilters = () => {
+    setCompany('')
+    setMarket('')
+    setPack('')
   }
 
   // Handle Add EAL Issuance
   const handleAddEALIssuance = async (EALIssuance) => {
     const {
-        company,
-        dateIssued,
-        market,
-        pack,
-        prefix,
-        serialFrom,
-        serialTo,
-        issuedQuantity
+      company: issuanceCompany,
+      dateIssued,
+      market: issuanceMarket,
+      pack: issuancePack,
+      prefix,
+      serialFrom,
+      serialTo,
+      issuedQuantity
     } = EALIssuance;
 
-    if (!company.trim()) {
+    if (!issuanceCompany.trim()) {
       toast.error("Please select a Company");
       return;
     }
@@ -75,12 +223,12 @@ const EALIssuance = () => {
       return;
     }
 
-    if (!market.trim()) {
+    if (!issuanceMarket.trim()) {
       toast.error("Please select a Market");
       return;
     }
 
-    if (!pack.trim()) {
+    if (!issuancePack.trim()) {
       toast.error("Please select a Pack");
       return;
     }
@@ -110,99 +258,358 @@ const EALIssuance = () => {
       await axiosInstance.post(API_PATHS.EALISSUANCE.ADD_DATA, EALIssuance)
 
       setOpenAddEALIssuanceModal(false);
+      setReloadToken((token) => token + 1);
       toast.success("EAL Issuance added sucesfully");
-      fetchEALIssuanceDetails();
     } catch (error) {
-      toast.error(error?.response?.data?.error || error.message);
+      toast.error(error?.response?.data?.error || error?.response?.data?.message || error.message);
       console.error('Error adding EAL Issuance:', error.response?.data?.message || error.message);
-    } finally {
       setLoading(false);
     }
-
   }
-
-  // Handle Delete EAL Issuance
-  const handleDeleteEALIssuance = async (id) => {}
-
-  useEffect(() => {
-    fetchEALIssuanceDetails()
-    return() => {}
-  }, [])
 
   return (
     <DashboardLayout activeMenu="EAL Issuance">
-      {loading && <LoadingOverlay />}
-      <div className="my-5 mx-auto">
-        <div className='grid grid-cols-1 gap-6'>
-          <div className=''>
-            <div className="card">
-              <div className="flex items-center justify-between">
-                <div className="">
-                  <h5 className="text-lg">EAL Issuance </h5>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    Track your EAL Issuance over time
-                  </p>
-                </div>
-                <DateRangeModal
-                  dateRange={dateRange}
-                  onApplyDateRange={onApplyDateRange}
-                />
-                <button className="add-btn" onClick={() => setOpenAddEALIssuanceModal(true)}>
-                  <LuPlus className="text-lg" />
-                  Add Issuance
-                </button>
-              </div>
-              <div className="mt-10">
-                <div className="overflow-x-auto mt-4">
-                  <table className="table-auto min-w-full border border-gray-200 text-sm text-left text-gray-700">
-                    <thead className="bg-gray-100 text-xs text-gray-700 uppercase">
-                      <tr>
-                        <th className="px-4 py-3 border">Company</th>
-                        <th className="px-4 py-3 border">Date Issued</th>
-                        <th className="px-4 py-3 border">Market</th>
-                        <th className="px-4 py-3 border">Pack</th>
-                        <th className="px-4 py-3 border">Serial From</th>
-                        <th className="px-4 py-3 border">Serial To</th>
-                        <th className="px-4 py-3 border">Balance Quantity</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Array.isArray(EALIssuanceData?.data) && EALIssuanceData.data.length > 0 ? (
-                        EALIssuanceData.data.map((entry) => (
-                          <tr key={entry._id} className="bg-white border-b hover:bg-gray-50">
-                            <td className="px-4 py-2 border">{entry.company.name}</td>
-                            <td className="px-4 py-2 border">{formatDate(entry.dateIssued)}</td>
-                            <td className="px-4 py-2 border capitalize">{entry.market}</td>
-                            <td className="px-4 py-2 border">{entry.pack.name}</td>
-                            <td className="px-4 py-2 border">{entry.prefix}{entry.serialFrom.toString().padStart(10, '0')}</td>
-                            <td className="px-4 py-2 border">{entry.prefix}{entry.serialTo.toString().padStart(10, '0')}</td>
-                            <td className="px-4 py-2 border">{entry.balanceQuantity}</td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan="7" className="text-center py-4 text-gray-500">
-                            {EALIssuanceData ? "No data available" : "Loading..."}
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+      <div className="mx-auto flex max-w-[1400px] flex-col gap-[18px]">
+
+        {/* Page header */}
+        <div className="flex flex-wrap items-end justify-between gap-3.5">
+          <div>
+            <h1 className="m-0 text-[25px] font-semibold tracking-[-0.022em]">EAL Issuance</h1>
+            <p className="mt-1.5 mb-0 text-[13px] text-[#5A636D]">
+              Labels received from the excise department, with the balance still unused
+              against each range.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => exportRows(rows, '')}
+              disabled={rows.length === 0}
+              className="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#D7D6D1] bg-white px-[13px] text-[13px] font-medium text-[#2A2F36] hover:bg-[#FAFAF8] disabled:cursor-not-allowed disabled:text-[#A8ADB5]"
+            >
+              <LuDownload />
+              Export
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpenAddEALIssuanceModal(true)}
+              className="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-medium text-white hover:bg-[#124C3F]"
+            >
+              <LuPlus />
+              Record issuance
+            </button>
           </div>
         </div>
-        
-        <Modal 
-          isOpen={openAddEALIssuanceModal} 
-          onClose={() => setOpenAddEALIssuanceModal(false)}
-          title="Add EAL Issuance"
-          styleClass='w-full'
-        >
-          <AddEALIssuanceForm onAddEALIssuance={handleAddEALIssuance} />
-        </Modal>
+
+        {/* Period summary */}
+        <div className="flex flex-wrap overflow-hidden rounded-xl border border-[#E3E2DE] bg-white">
+          {[
+            { label: 'Ranges in period', value: rows.length, unit: rows.length === 1 ? 'issuance' : 'issuances' },
+            { label: 'Issued', value: totals.issued, unit: 'EAL' },
+            { label: 'Applied in production', value: totals.used, unit: 'EAL' },
+            { label: 'Balance on hand', value: totals.balance, unit: 'EAL' }
+          ].map((figure) => (
+            <div key={figure.label} className="min-w-0 flex-[1_1_180px] border-l border-[#EDECE8] px-[18px] py-[15px] first:border-l-0">
+              <p className="m-0 mb-[7px] text-[11px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase">
+                {figure.label}
+              </p>
+              <p className="m-0 flex items-baseline gap-[7px]">
+                <span className="font-numeric text-[21px] font-medium tracking-[-0.015em] tabular-nums">
+                  {loading ? '—' : formatQuantity(figure.value)}
+                </span>
+                <span className="text-[11.5px] text-[#5A636D]">{figure.unit}</span>
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* Filter bar */}
+        <div className="flex flex-wrap items-center gap-2 rounded-[11px] border border-[#E3E2DE] bg-white px-3 py-2.5">
+          <DateRangeModal dateRange={dateRange} onApplyDateRange={onApplyDateRange} />
+
+          <span className="mx-0.5 h-[22px] w-px bg-[#E3E2DE]" />
+
+          <label className="flex h-[34px] items-center gap-[7px] rounded-lg border border-[#E3E2DE] px-2.5 text-[12.5px]">
+            <span className="text-[#5A636D]">Company</span>
+            <select
+              value={company}
+              onChange={({ target }) => setCompany(target.value)}
+              className="cursor-pointer border-0 bg-transparent font-medium text-[#15181C] outline-none"
+            >
+              <option value="">All</option>
+              {companies.map((option) => (
+                <option key={option._id} value={option._id}>{option.name}</option>
+              ))}
+            </select>
+          </label>
+
+          <div role="group" aria-label="Market" className="flex h-[34px] gap-0.5 rounded-lg bg-[#F2F1ED] p-[3px]">
+            {[
+              { value: '', label: 'All' },
+              { value: 'local', label: 'Local' },
+              { value: 'export', label: 'Export' }
+            ].map((option) => (
+              <button
+                key={option.label}
+                type="button"
+                aria-pressed={market === option.value}
+                onClick={() => setMarket(option.value)}
+                className={`cursor-pointer rounded-md px-3 text-[12.5px] ${
+                  market === option.value
+                    ? 'bg-white font-semibold text-[#15181C] shadow-sm'
+                    : 'text-[#4A5159]'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
+          <label className="flex h-[34px] items-center gap-[7px] rounded-lg border border-[#E3E2DE] px-2.5 text-[12.5px]">
+            <span className="text-[#5A636D]">Pack</span>
+            <select
+              value={pack}
+              onChange={({ target }) => setPack(target.value)}
+              className="cursor-pointer border-0 bg-transparent font-medium text-[#15181C] outline-none"
+            >
+              <option value="">All</option>
+              {packs.map((option) => (
+                <option key={option._id} value={option._id}>{option.name}</option>
+              ))}
+            </select>
+          </label>
+
+          <span className="flex-1" />
+
+          {filtersActive && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="h-[34px] cursor-pointer px-2.5 text-[12.5px] text-[#5A636D] underline underline-offset-[3px]"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+
+        {error && (
+          <p role="alert" className="m-0 rounded-[10px] border border-[#F3C9C7] bg-[#FCEBEA] px-4 py-3 text-[13px] text-[#7A2322]">
+            {error}
+          </p>
+        )}
+
+        {/* Table */}
+        <section className="overflow-hidden rounded-xl border border-[#E3E2DE] bg-white">
+          {selected.size > 0 && (
+            <div className="flex flex-wrap items-center gap-3 bg-[#0F2E27] px-[18px] py-[11px] text-[#DCEAE4]">
+              <span className="font-numeric text-[12.5px] font-semibold">
+                {selected.size} {selected.size === 1 ? 'range' : 'ranges'} selected
+              </span>
+              <span className="text-[#4E7A6E]">·</span>
+              <span className="font-numeric text-[12.5px] text-[#9DC4B8]">
+                {formatQuantity(selectedLabels)} labels
+              </span>
+              <span className="flex-1" />
+              <button
+                type="button"
+                onClick={() => exportRows(selectedRows, '-selection')}
+                className="h-[30px] cursor-pointer rounded-[7px] border border-[#2F5E52] px-[11px] text-xs text-[#DCEAE4] hover:bg-[#15594A]"
+              >
+                Export selection
+              </button>
+              <button
+                type="button"
+                aria-label="Clear selection"
+                onClick={() => setSelected(new Set())}
+                className="flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-[7px] border border-[#2F5E52] hover:bg-[#15594A]"
+              >
+                <LuX />
+              </button>
+            </div>
+          )}
+
+          {!loading && rows.length === 0 ? (
+            <div className="px-[18px] py-5">
+              <EmptyState
+                icon={<InboxIcon size={26} strokeWidth={1.5} />}
+                title="No issuances in this period"
+                description={
+                  filtersActive
+                    ? 'Nothing matches these filters. Clear them, or widen the date range.'
+                    : 'Widen the date range, or record the issuance you have just received from the excise department.'
+                }
+                action={
+                  <button
+                    type="button"
+                    onClick={() => (filtersActive ? clearFilters() : setOpenAddEALIssuanceModal(true))}
+                    className="h-[34px] cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[12.5px] font-medium text-white"
+                  >
+                    {filtersActive ? 'Clear filters' : 'Record issuance'}
+                  </button>
+                }
+              />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1040px] border-collapse">
+                <thead>
+                  <tr>
+                    <th className={`${headerCell} w-11 pl-[18px]`}>
+                      <input
+                        ref={selectAllRef}
+                        type="checkbox"
+                        aria-label="Select all rows"
+                        checked={rows.length > 0 && selected.size === rows.length}
+                        onChange={toggleAll}
+                        className="m-0 h-[15px] w-[15px] cursor-pointer accent-[#15594A]"
+                      />
+                    </th>
+                    <th className={headerCell}>Company</th>
+                    <th className={headerCell}>Date issued</th>
+                    <th className={headerCell}>Market</th>
+                    <th className={headerCell}>Pack</th>
+                    <th className={headerCell}>Serial range</th>
+                    <th className={`${headerCell} text-right`}>Issued</th>
+                    <th className={`${headerCell} text-right`}>Used</th>
+                    <th className={`${headerCell} text-right`}>Balance</th>
+                    <th className={headerCell}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <SkeletonTableRows rows={6} columns={COLUMN_COUNT} />
+                  ) : (
+                    pageRows.map((entry) => {
+                      const chosen = selected.has(entry._id)
+                      const tone = marketStyle(entry.market)
+                      return (
+                        <tr
+                          key={entry._id}
+                          className={chosen ? 'bg-[#F3F8F6]' : 'hover:bg-[#FAFAF8]'}
+                        >
+                          <td
+                            className={`${bodyCell} pl-[18px]`}
+                            style={{ borderLeft: `2px solid ${chosen ? '#15594A' : 'transparent'}` }}
+                          >
+                            <input
+                              type="checkbox"
+                              aria-label={`Select range ${entry.prefix}${entry.serialFrom}`}
+                              checked={chosen}
+                              onChange={() => toggleRow(entry._id)}
+                              className="m-0 h-[15px] w-[15px] cursor-pointer accent-[#15594A]"
+                            />
+                          </td>
+                          <td className={`${bodyCell} font-medium whitespace-nowrap text-[#15181C]`}>
+                            {entry.company?.name || '—'}
+                          </td>
+                          <td className={`${bodyCell} font-numeric whitespace-nowrap tabular-nums`}>
+                            {formatDate(entry.dateIssued)}
+                          </td>
+                          <td className={bodyCell}>
+                            <span
+                              className="inline-block rounded-[5px] px-2 py-[3px] text-[11px] font-semibold"
+                              style={{ color: tone.fg, backgroundColor: tone.bg }}
+                            >
+                              {tone.label}
+                            </span>
+                          </td>
+                          <td className={`${bodyCell} whitespace-nowrap`}>{entry.pack?.name || '—'}</td>
+                          <td className={bodyCell}>
+                            <SerialRange
+                              prefix={entry.prefix}
+                              serialFrom={entry.serialFrom}
+                              serialTo={entry.serialTo}
+                            />
+                          </td>
+                          <td className={`${bodyCell} font-numeric text-right text-[#5A636D] tabular-nums`}>
+                            {formatQuantity(entry.issuedQuantity)}
+                          </td>
+                          <td className={`${bodyCell} font-numeric text-right text-[#5A636D] tabular-nums`}>
+                            {formatQuantity(entry.used)}
+                          </td>
+                          <td className={`${bodyCell} font-numeric text-right font-semibold text-[#15181C] tabular-nums`}>
+                            {formatQuantity(entry.balanceQuantity)}
+                          </td>
+                          <td className={bodyCell}>
+                            <StatusPill status={entry.status} />
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+                {!loading && rows.length > 0 && (
+                  <tfoot>
+                    <tr>
+                      <td className={footCell} colSpan={6}>
+                        Total · {rows.length} {rows.length === 1 ? 'issuance' : 'issuances'}
+                      </td>
+                      <td className={`${footCell} font-numeric text-right tabular-nums`}>
+                        {formatQuantity(totals.issued)}
+                      </td>
+                      <td className={`${footCell} font-numeric text-right tabular-nums`}>
+                        {formatQuantity(totals.used)}
+                      </td>
+                      <td className={`${footCell} font-numeric text-right tabular-nums`}>
+                        {formatQuantity(totals.balance)}
+                      </td>
+                      <td className={footCell} />
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          )}
+
+          {!loading && rows.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#EDECE8] px-[18px] py-3">
+              <span className="text-xs text-[#5A636D]">
+                Rows {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, rows.length)} of{' '}
+                {rows.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <label className="mr-2 flex items-center gap-[7px] text-xs text-[#5A636D]">
+                  Rows per page
+                  <select
+                    value={pageSize}
+                    onChange={({ target }) => setPageSize(Number(target.value))}
+                    className="h-[30px] cursor-pointer rounded-[7px] border border-[#D7D6D1] bg-white px-1.5 text-xs"
+                  >
+                    {PAGE_SIZES.map((size) => (
+                      <option key={size} value={size}>{size}</option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setPage((value) => Math.max(1, value - 1))}
+                  disabled={currentPage === 1}
+                  className="h-[30px] cursor-pointer rounded-[7px] border border-[#D7D6D1] bg-white px-[11px] text-xs text-[#2A2F36] disabled:cursor-not-allowed disabled:text-[#A8ADB5]"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+                  disabled={currentPage === pageCount}
+                  className="h-[30px] cursor-pointer rounded-[7px] border border-[#D7D6D1] bg-white px-[11px] text-xs text-[#2A2F36] disabled:cursor-not-allowed disabled:text-[#A8ADB5]"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
+
+      <Modal
+        isOpen={openAddEALIssuanceModal}
+        onClose={() => setOpenAddEALIssuanceModal(false)}
+        title="Add EAL Issuance"
+        styleClass='w-full'
+      >
+        <AddEALIssuanceForm onAddEALIssuance={handleAddEALIssuance} />
+      </Modal>
     </DashboardLayout>
   )
 }
