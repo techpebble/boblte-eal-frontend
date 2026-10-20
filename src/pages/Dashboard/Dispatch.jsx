@@ -12,6 +12,7 @@ import { SkeletonLines } from '../../components/Dashboard/Skeleton'
 import { CheckIcon, TruckIcon } from '../../components/Dashboard/icons'
 import {
   formatQuantity,
+  itemLabel,
   marketStyle,
   shortReference
 } from '../../components/Dashboard/dashboardFormat'
@@ -622,7 +623,7 @@ const Dispatch = () => {
                             <tr key={entry.item?._id || entry._id} className={active ? 'bg-[#F3F8F6]' : ''}>
                               <td className={`${bodyCell} font-medium text-[#15181C]`}>
                                 <span className="block max-w-[280px] truncate" title={entry.item?.name || undefined}>
-                                  {entry.item?.name || '—'}
+                                  {itemLabel(entry.item) || '—'}
                                 </span>
                               </td>
                               <td className={`${bodyCell} font-numeric text-right tabular-nums`}>
@@ -675,7 +676,7 @@ const Dispatch = () => {
                       </span>
                       <div className="min-w-0 flex-[1_1_260px]">
                         <h3 className="m-0 truncate text-[14.5px] font-semibold tracking-[-0.01em]">
-                          Link serial ranges · {linkItem.item?.name}
+                          Link serial ranges · {itemLabel(linkItem.item)}
                         </h3>
                         <p className="mt-[3px] mb-0 text-xs text-[#4A5159]">
                           {formatQuantity(linkItem.EALIssuedQuantity || 0)} of{' '}

@@ -8,7 +8,7 @@ import FormSection from '../inputs/FormSection';
 import { API_PATHS } from '../../utils/apiPaths';
 import axiosInstance from '../../utils/axiosInstance';
 import { formatDateToYYYYMMDD } from '../../utils/helper';
-import { formatQuantity } from '../Dashboard/dashboardFormat';
+import { formatQuantity, itemLabel } from '../Dashboard/dashboardFormat';
 
 const headerCell =
     'bg-[#FAFAF8] px-3.5 pt-[11px] pb-2.5 text-left text-[11px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase whitespace-nowrap';
@@ -112,7 +112,7 @@ function AddDispatchForm({ onSubmitDispatch, dispatchDetails }) {
             if (response.data) {
                 const itemOptions = response.data.data.map((item) => ({
                     value: item._id,
-                    label: item.name,
+                    label: itemLabel(item),
                 }));
                 setProducts(itemOptions);
                 if (Dispatch.items.length === 0) {

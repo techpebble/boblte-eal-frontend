@@ -11,6 +11,7 @@ const MARKETS = [
 const BLANK = {
   itemCode: '',
   name: '',
+  alias: '',
   description: '',
   pack: '',
   market: 'local',
@@ -23,6 +24,7 @@ const BLANK = {
 const fromRecord = (record) => ({
   itemCode: record.itemCode ?? '',
   name: record.name ?? '',
+  alias: record.alias ?? '',
   description: record.description ?? '',
   pack: record.pack?._id ?? record.pack ?? '',
   market: record.market ?? 'local',
@@ -68,6 +70,7 @@ const ItemForm = ({ record, onSubmit, loading, companies = [], packs = [] }) => 
     formData.itemCode.trim() &&
     formData.name.trim() &&
     formData.brand.trim() &&
+    formData.description.trim() &&
     formData.company &&
     formData.pack &&
     Number(formData.bottlesPerCase) > 0
@@ -113,6 +116,15 @@ const ItemForm = ({ record, onSubmit, loading, companies = [], packs = [] }) => 
           />
         </div>
         <div className="mt-3.5">
+          <Input
+            label="Short name"
+            value={formData.alias}
+            onChange={({ target }) => change('alias', target.value)}
+            type="text"
+            hint="Optional. Shown instead of the full name in tables and pickers."
+          />
+        </div>
+        <div className="mt-3.5">
           <label htmlFor="item-description" className="mb-1.5 block text-xs font-medium text-[#3C434B]">
             Description
           </label>
@@ -121,6 +133,7 @@ const ItemForm = ({ record, onSubmit, loading, companies = [], packs = [] }) => 
             rows={2}
             value={formData.description}
             onChange={({ target }) => change('description', target.value)}
+            required
             className="w-full resize-y rounded-lg border border-[#D7D6D1] bg-white px-[11px] py-2.5 text-[13.5px] text-[#15181C] outline-none focus:border-[#15594A] focus:ring-[3px] focus:ring-[#E7F0EC]"
           />
         </div>

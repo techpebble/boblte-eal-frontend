@@ -74,6 +74,13 @@ export const formatQuantity = (value) => {
 // The unit the API reports, in the wording the artboard uses.
 export const unitLabel = (unit) => (unit === 'labels' ? 'EAL' : unit || '');
 
+/**
+ * What to call an item on screen. Item names run to things like "ORIGINAL
+ * CHOICE DELUXE WHISKY 90ML TETRAPAK x 96", so a short alias is shown in its
+ * place wherever one has been set.
+ */
+export const itemLabel = (item) => item?.alias?.trim() || item?.name || null;
+
 /** Serials always render as ten digits so ranges line up column to column. */
 export const padSerial = (serial) => String(serial ?? '').padStart(10, '0');
 

@@ -5,7 +5,7 @@ import FormSection from '../inputs/FormSection';
 import ValidationList from '../inputs/ValidationList';
 import { API_PATHS } from '../../utils/apiPaths';
 import axiosInstance from '../../utils/axiosInstance';
-import { formatQuantity } from '../Dashboard/dashboardFormat';
+import { formatQuantity, itemLabel } from '../Dashboard/dashboardFormat';
 
 function AddEALUsageForm({ onAddEALUsage }) {
     const [companies, setcompanies] = useState([]);
@@ -62,7 +62,7 @@ function AddEALUsageForm({ onAddEALUsage }) {
             if (response.data) {
                 const itemOptions = response.data.data.map((item) => ({
                     value: item._id,
-                    label: item.name,
+                    label: itemLabel(item),
                 }));
                 setitems(itemOptions);
             }

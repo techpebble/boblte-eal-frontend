@@ -8,6 +8,7 @@ import { SkeletonLines } from '../../components/Dashboard/Skeleton'
 import { TagIcon } from '../../components/Dashboard/icons'
 import {
     formatQuantity,
+    itemLabel,
     marketStyle,
     padSerial,
     shortReference
@@ -119,7 +120,7 @@ const FindEAL = () => {
                 title: 'Applied in production',
                 date: usage.dateUsed,
                 detail: `${formatQuantity(usage.usedQuantity)} labels applied${
-                    nameOf(usage.item) ? ` to ${nameOf(usage.item)}` : ''
+                    itemLabel(usage.item) ? ` to ${itemLabel(usage.item)}` : ''
                 }, making ${formatQuantity(usage.usedQuantityInCases)} cases.`,
                 user: usage.createdBy?.fullName,
                 tone: '#15594A'
@@ -165,7 +166,7 @@ const FindEAL = () => {
                 { k: 'Pack', v: nameOf(issuance?.pack) },
                 { k: 'Market', v: issuance?.market },
                 { k: 'Issued on', v: issuance ? formatDate(issuance.dateIssued) : null },
-                { k: 'Item', v: nameOf(usage?.item) },
+                { k: 'Item', v: itemLabel(usage?.item) },
                 { k: 'Applied on', v: usage ? formatDate(usage.dateUsed) : null },
                 { k: 'Dispatch note', v: note ? shortReference(note._id) : null },
                 { k: 'Depot', v: nameOf(note?.deliveryTo) }
