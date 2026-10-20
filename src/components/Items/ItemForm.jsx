@@ -68,6 +68,7 @@ const ItemForm = ({ record, onSubmit, loading, companies = [], packs = [] }) => 
 
   const ready = Boolean(
     formData.itemCode.trim() &&
+    formData.alias.trim() &&
     formData.name.trim() &&
     formData.brand.trim() &&
     formData.description.trim() &&
@@ -108,20 +109,22 @@ const ItemForm = ({ record, onSubmit, loading, companies = [], packs = [] }) => 
         </div>
         <div className="mt-3.5">
           <Input
-            label="Name"
-            value={formData.name}
-            onChange={({ target }) => change('name', target.value)}
-            type="text"
-            required
-          />
-        </div>
-        <div className="mt-3.5">
-          <Input
             label="Short name"
             value={formData.alias}
             onChange={({ target }) => change('alias', target.value)}
             type="text"
-            hint="Optional. Shown instead of the full name in tables and pickers."
+            required
+            hint="What every table, picker and the mobile app will show. Keep it under about 30 characters."
+          />
+        </div>
+        <div className="mt-3.5">
+          <Input
+            label="Full name"
+            value={formData.name}
+            onChange={({ target }) => change('name', target.value)}
+            type="text"
+            required
+            hint="The official product name. Kept on record and shown on hover."
           />
         </div>
         <div className="mt-3.5">

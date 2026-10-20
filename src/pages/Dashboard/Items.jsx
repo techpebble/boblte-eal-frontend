@@ -7,7 +7,7 @@ import ItemForm from '../../components/Items/ItemForm'
 import EmptyState from '../../components/Dashboard/EmptyState'
 import { SkeletonTableRows } from '../../components/Dashboard/Skeleton'
 import { TagIcon } from '../../components/Dashboard/icons'
-import { formatQuantity, marketStyle } from '../../components/Dashboard/dashboardFormat'
+import { formatQuantity, itemLabel, marketStyle } from '../../components/Dashboard/dashboardFormat'
 import axiosInstance from '../../utils/axiosInstance'
 import { API_PATHS } from '../../utils/apiPaths'
 import { downloadCsv } from '../../utils/exportCsv'
@@ -119,7 +119,7 @@ const Items = () => {
       await axiosInstance.put(`${API_PATHS.ITEM.UPDATE_STATUS}/${item._id}/status`, {
         isActive: newActive
       })
-      toast.success(`Item "${item.name}" marked as ${newActive ? 'Active' : 'Inactive'}`)
+      toast.success(`Item "${itemLabel(item)}" marked as ${newActive ? 'Active' : 'Inactive'}`)
     } catch (err) {
       // Revert optimistic update
       setItemsData((prev) =>
@@ -173,8 +173,8 @@ const Items = () => {
       `items-${formatDateToYYYYMMDD(new Date())}.csv`,
       [
         { header: 'Item code', value: (row) => row.itemCode },
-        { header: 'Name', value: (row) => row.name },
         { header: 'Short name', value: (row) => row.alias },
+        { header: 'Full name', value: (row) => row.name },
         { header: 'Brand', value: (row) => row.brand },
         { header: 'Company', value: (row) => row.company?.name },
         { header: 'Pack', value: (row) => row.pack?.name },
@@ -234,7 +234,7 @@ const Items = () => {
             <input
               value={search}
               onChange={({ target }) => setSearch(target.value)}
-              placeholder="Search name, code or brand"
+              placeholder="Search short name, full name, code or brand"
               className="min-w-0 flex-1 border-0 bg-transparent text-[12.5px] text-[#15181C] outline-none"
             />
           </label>
@@ -367,7 +367,7 @@ const Items = () => {
                           </td>
                           <td className={`${bodyCell} font-medium text-[#15181C]`}>
                             <span className="block truncate" title={item.name}>
-                              {item.alias || item.name}
+                              {itemLabel(item)}
                             </span>
                             <span className="mt-0.5 block truncate text-[11.5px] font-normal text-[#5A636D]">
                               {[item.brand, item.alias ? item.name : null].filter(Boolean).join(' · ') || '—'}
@@ -425,7 +425,7 @@ const Items = () => {
                             <button
                               type="button"
                               onClick={() => openEdit(item)}
-                              aria-label={`Edit ${item.name}`}
+                              aria-label={`Edit ${itemLabel(item)}`}
                               className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-[#5A636D] hover:bg-[#F2F1ED] hover:text-[#15181C]"
                             >
                               <LuPencil />
