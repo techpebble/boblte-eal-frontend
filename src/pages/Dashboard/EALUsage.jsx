@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { LuDownload, LuPlus, LuX } from 'react-icons/lu'
+import { LuDownload, LuPlus, LuTrash2, LuX } from 'react-icons/lu'
 import DashboardLayout from '../../components/layouts/DashboardLayout'
 import Modal from '../../components/Modal/Modal'
 import DateRangeModal from '../../components/Modal/DateRangeModal'
@@ -10,14 +10,14 @@ import SerialRange from '../../components/Dashboard/SerialRange'
 import StatusPill from '../../components/Dashboard/StatusPill'
 import { SkeletonTableRows } from '../../components/Dashboard/Skeleton'
 import { ChartIcon } from '../../components/Dashboard/icons'
-import { formatQuantity, itemLabel, marketStyle } from '../../components/Dashboard/dashboardFormat'
+import { formatQuantity, itemLabel, marketStyle, padSerial } from '../../components/Dashboard/dashboardFormat'
 import axiosInstance from '../../utils/axiosInstance'
 import { API_PATHS } from '../../utils/apiPaths'
 import { downloadCsv } from '../../utils/exportCsv'
 import { formatDate, formatDateToYYYYMMDD } from '../../utils/helper'
 
 const PAGE_SIZES = [25, 50, 100]
-const COLUMN_COUNT = 7
+const COLUMN_COUNT = 8
 
 const headerCell =
   'bg-[#FAFAF8] px-4 pt-3 pb-[11px] text-left text-[11px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase whitespace-nowrap'
@@ -61,6 +61,9 @@ const EALUsage = () => {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const [reloadToken, setReloadToken] = useState(0)
+  const [removeCandidate, setRemoveCandidate] = useState(null)
+  const [removing, setRemoving] = useState(false)
+  const [confirmRange, setConfirmRange] = useState({ serialFrom: '', serialTo: '' })
 
   const selectAllRef = useRef(null)
 
@@ -194,6 +197,40 @@ const EALUsage = () => {
       ],
       list
     )
+  }
+
+  // Both ends must match the record exactly before the button comes alive.
+  const rangeConfirmed = Boolean(
+    removeCandidate &&
+    confirmRange.serialFrom.trim() !== '' &&
+    confirmRange.serialTo.trim() !== '' &&
+    Number(confirmRange.serialFrom) === removeCandidate.serialFrom &&
+    Number(confirmRange.serialTo) === removeCandidate.serialTo
+  )
+
+  const handleRemoveUsage = async () => {
+    if (!removeCandidate) return
+
+    try {
+      setRemoving(true)
+      // The range goes with the request so the server can confirm it is
+      // removing the record the page was showing.
+      const { data } = await axiosInstance.delete(
+        `${API_PATHS.EALUSAGE.DELETE_DATA}/${removeCandidate._id}`,
+        { data: { serialFrom: confirmRange.serialFrom.trim(), serialTo: confirmRange.serialTo.trim() } }
+      )
+      toast.success(
+        `Usage removed · ${formatQuantity(data?.data?.labelsReturned ?? removeCandidate.usedQuantity)} labels back in stock`
+      )
+      setRemoveCandidate(null)
+      setConfirmRange({ serialFrom: '', serialTo: '' })
+      setReloadToken((token) => token + 1)
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err?.response?.data?.error || 'Could not remove the usage')
+      console.error('Error removing EAL Usage:', err)
+    } finally {
+      setRemoving(false)
+    }
   }
 
   const clearFilters = () => {
@@ -465,7 +502,7 @@ const EALUsage = () => {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[920px] table-fixed border-collapse">
+              <table className="w-full min-w-[956px] table-fixed border-collapse">
                 <thead>
                   <tr>
                     <th className={`${headerCell} w-11 pl-[18px]`}>
@@ -486,7 +523,8 @@ const EALUsage = () => {
                     <th className={`${headerCell} w-[215px]`}>Serial range</th>
                     <th className={`${headerCell} w-[90px] text-right`}>Cases</th>
                     <th className={`${headerCell} w-[108px] text-right`}>Awaiting</th>
-                    <th className={`${headerCell} w-[136px]`}>Status</th>
+                    <th className={`${headerCell} w-[120px]`}>Status</th>
+                    <th className={`${headerCell} w-[52px] text-right`}>Remove</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -559,6 +597,25 @@ const EALUsage = () => {
                           <td className={bodyCell}>
                             <StatusPill status={entry.status} />
                           </td>
+                          <td className={`${bodyCell} text-right`}>
+                            {/* Only a run with nothing dispatched can go, and
+                                removing it hands the labels back to its
+                                issuance. The API checks this too. */}
+                            <button
+                              type="button"
+                              disabled={entry.status !== 'in-stock'}
+                              onClick={() => { setRemoveCandidate(entry); setConfirmRange({ serialFrom: '', serialTo: '' }) }}
+                              aria-label={`Remove usage ${entry.prefix}${entry.serialFrom}`}
+                              title={
+                                entry.status === 'in-stock'
+                                  ? 'Remove this production run and return its labels to stock'
+                                  : 'Some of these cases have been dispatched, so this cannot be removed'
+                              }
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#5A636D] enabled:cursor-pointer enabled:hover:bg-[#FCEBEA] enabled:hover:text-[#9B2C2C] disabled:cursor-not-allowed disabled:text-[#D7D6D1]"
+                            >
+                              <LuTrash2 />
+                            </button>
+                          </td>
                         </tr>
                       )
                     })
@@ -579,7 +636,7 @@ const EALUsage = () => {
                       <td className={`${footCell} font-numeric text-right tabular-nums`}>
                         {formatQuantity(totals.waiting)}
                       </td>
-                      <td className={footCell} />
+                      <td className={footCell} colSpan={2} />
                     </tr>
                   </tfoot>
                 )}
@@ -627,6 +684,101 @@ const EALUsage = () => {
           )}
         </section>
       </div>
+
+      <Modal
+        isOpen={Boolean(removeCandidate)}
+        onClose={() => { setRemoveCandidate(null); setConfirmRange({ serialFrom: '', serialTo: '' }) }}
+        title="Remove EAL usage"
+        styleClass="w-full max-w-lg"
+      >
+        {removeCandidate && (
+          <div className="font-ui flex flex-col gap-4">
+            <div>
+              <h2 className="m-0 text-[19px] font-semibold tracking-[-0.018em]">Remove this production run?</h2>
+              <p className="mt-1.5 mb-0 text-[12.5px] text-[#5A636D]">
+                None of these cases has been dispatched. Removing the run puts its
+                labels back on the issuance they came from. This cannot be undone.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-[#E3E2DE] bg-[#FAFAF8] px-3.5 py-3">
+              <SerialRange
+                compact
+                prefix={removeCandidate.prefix}
+                serialFrom={removeCandidate.serialFrom}
+                serialTo={removeCandidate.serialTo}
+              />
+              <dl className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-1.5">
+                {[
+                  ['Item', itemLabel(removeCandidate.item)],
+                  ['Date used', formatDate(removeCandidate.dateUsed)],
+                  ['Cases produced', formatQuantity(removeCandidate.usedQuantityInCases)],
+                  ['Labels returned', formatQuantity(removeCandidate.usedQuantity)]
+                ].map(([label, value]) => (
+                  <div key={label} className="flex items-baseline justify-between gap-2">
+                    <dt className="shrink-0 text-[11.5px] text-[#5A636D]">{label}</dt>
+                    <dd className="font-numeric m-0 truncate text-xs tabular-nums text-[#15181C]">{value || '—'}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+
+            <div>
+              <p className="m-0 mb-2.5 text-[12.5px] text-[#3C434B]">
+                Type the serial range to confirm. It is checked here and again by
+                the server before anything is removed.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {[
+                  ['serialFrom', 'Serial from', removeCandidate.serialFrom],
+                  ['serialTo', 'Serial to', removeCandidate.serialTo]
+                ].map(([key, label, expected]) => {
+                  const typed = confirmRange[key].trim()
+                  const matches = typed !== '' && Number(typed) === expected
+                  return (
+                    <div key={key} className="min-w-0 flex-[1_1_170px]">
+                      <label htmlFor={`confirm-${key}`} className="mb-1.5 block text-xs font-medium text-[#3C434B]">
+                        {label}
+                      </label>
+                      <input
+                        id={`confirm-${key}`}
+                        value={confirmRange[key]}
+                        onChange={({ target }) =>
+                          setConfirmRange((previous) => ({ ...previous, [key]: target.value }))
+                        }
+                        inputMode="numeric"
+                        placeholder={padSerial(expected)}
+                        className="font-numeric h-[38px] w-full rounded-lg border bg-white px-[11px] text-[13.5px] tabular-nums text-[#15181C] outline-none"
+                        style={{
+                          borderColor: typed === '' ? '#D7D6D1' : matches ? '#15594A' : '#9B2C2C'
+                        }}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => { setRemoveCandidate(null); setConfirmRange({ serialFrom: '', serialTo: '' }) }}
+                className="h-9 cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-3.5 text-[13px] font-medium text-[#2A2F36]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={removing || !rangeConfirmed}
+                onClick={handleRemoveUsage}
+                className="h-9 cursor-pointer rounded-lg border border-[#9B2C2C] bg-[#9B2C2C] px-3.5 text-[13px] font-semibold text-white hover:bg-[#872626] disabled:cursor-not-allowed disabled:border-[#E3E2DE] disabled:bg-[#F2F1ED] disabled:text-[#A8ADB5]"
+              >
+                {removing ? 'Removing…' : 'Remove and return labels'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         isOpen={openAddEALUsageModal}

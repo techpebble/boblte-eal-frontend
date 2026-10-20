@@ -18,6 +18,7 @@ export const API_PATHS = {
     EALUSAGE: {
         GET_DATA: 'api/v1/eal_usage',
         ADD_DATA: 'api/v1/eal_usage',
+        DELETE_DATA: 'api/v1/eal_usage',
         FIND: 'api/v1/eal_usage/find'
     },
     EALDISPATCH: {
