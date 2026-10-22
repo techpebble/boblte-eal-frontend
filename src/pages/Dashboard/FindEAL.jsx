@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { LuPrinter, LuSearch } from 'react-icons/lu'
+import { useSearchParams } from 'react-router-dom'
 import DashboardLayout from '../../components/layouts/DashboardLayout'
 import EmptyState from '../../components/Dashboard/EmptyState'
 import SerialRange from '../../components/Dashboard/SerialRange'
@@ -28,6 +29,7 @@ const FindEAL = () => {
     const [companies, setCompanies] = useState([])
     const [packs, setPacks] = useState([])
 
+    const [searchParams, setSearchParams] = useSearchParams()
     const [loading, setLoading] = useState(false)
     const [trace, setTrace] = useState(null)
     const [notFound, setNotFound] = useState(false)
@@ -59,10 +61,8 @@ const FindEAL = () => {
         setError(null)
     }
 
-    const onSearch = async (event) => {
-        if (event) event.preventDefault()
-
-        if (!ealNumber.trim()) {
+    const runTrace = useCallback(async (serial) => {
+        if (!serial.trim()) {
             setError('Enter an EAL serial to trace.')
             return
         }
@@ -75,7 +75,7 @@ const FindEAL = () => {
         try {
             const res = await axiosInstance.get(API_PATHS.EALUSAGE.FIND, {
                 params: {
-                    ealNumber: ealNumber.trim(),
+                    ealNumber: serial.trim(),
                     ...(company ? { company } : {}),
                     ...(market ? { market } : {}),
                     ...(pack ? { pack } : {})
@@ -89,7 +89,26 @@ const FindEAL = () => {
         } finally {
             setLoading(false)
         }
+    }, [company, market, pack])
+
+    const onSearch = (event) => {
+        if (event) event.preventDefault()
+        runTrace(ealNumber)
     }
+
+    // A serial handed over by the header search is traced on arrival, then
+    // dropped from the address so a reload does not repeat it.
+    useEffect(() => {
+        const handed = searchParams.get('serial')
+        if (!handed) return
+
+        setEalNumber(handed)
+        runTrace(handed)
+        setSearchParams({}, { replace: true })
+        // runTrace is stable for a given set of filters, and this should run for
+        // the serial that arrived rather than on every filter change.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams])
 
     /**
      * The API answers with four parallel lists. This folds them into the one

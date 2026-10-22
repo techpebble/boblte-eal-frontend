@@ -18,17 +18,19 @@ const DashboardLayout = ({ children, activeMenu }) => {
     }, [])
 
     return (
-        <div className="font-ui min-h-screen bg-[#F6F5F3] text-[#15181C]">
-            <Navbar activeMenu={activeMenu} onOpenSideMenu={() => setDrawerOpen(true)} />
+        // The menu is a full-height column of its own and the bar belongs to
+        // the content beside it. A bar spanning the whole width instead would
+        // push the menu — and the lockup at its top — down below it.
+        <div className="font-ui flex min-h-screen bg-[#F6F5F3] text-[#15181C]">
+            <div className="sticky top-0 h-screen shrink-0 max-[1080px]:hidden">
+                <SideMenu activeMenu={activeMenu} />
+            </div>
 
-            <div className="flex items-start">
-                <div className="sticky top-[57px] h-[calc(100vh-57px)] shrink-0 max-[1080px]:hidden">
-                    <SideMenu activeMenu={activeMenu} />
-                </div>
-
-                {/* min-w-0 keeps this column from being widened by a page's widest
-                    table — without it the content grows past the viewport and
-                    body's overflow-x:hidden clips it, so it cannot be scrolled. */}
+            {/* min-w-0 keeps this column from being widened by a page's widest
+                table — without it the content grows past the viewport and
+                body's overflow-x:hidden clips it, so it cannot be scrolled. */}
+            <div className="flex min-w-0 grow flex-col">
+                <Navbar activeMenu={activeMenu} onOpenSideMenu={() => setDrawerOpen(true)} />
                 <main className="min-w-0 grow px-4 py-5 sm:px-7">{children}</main>
             </div>
 
