@@ -18,3 +18,13 @@ export const visibleGroups = (groups, user) =>
       items: group.items.filter((item) => !item.permission || can(user, item.permission))
     }))
     .filter((group) => group.items.length > 0)
+
+/**
+ * The first page in the menu this person can actually open, used to land
+ * someone somewhere sensible when the page they asked for is not theirs.
+ * Null when their role opens nothing at all.
+ */
+export const firstAllowedPath = (groups, user) => {
+  const visible = visibleGroups(groups, user)
+  return visible[0]?.items[0]?.path ?? null
+}

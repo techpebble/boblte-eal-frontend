@@ -36,19 +36,19 @@ const App = () => {
             <Route path="/login" exact element={<Login />} />
             <Route path="/logout" exact element={<Logout />} />
 
-            <Route path="/users" exact element={<ProtectedRoute><Users /></ProtectedRoute>} />
-            <Route path="/dashboard" exact element={<ProtectedRoute><Home /></ProtectedRoute>} />
-            <Route path="/eal-issuance" exact element={<ProtectedRoute><EALIssuance /></ProtectedRoute>} />
-            <Route path="/eal-usage" exact element={<ProtectedRoute><EALUsage /></ProtectedRoute>} />
-            <Route path="/finished-stock" exact element={<ProtectedRoute><FinishedStock /></ProtectedRoute>} />
-            <Route path="/dispatch" exact element={<ProtectedRoute><Dispatch /></ProtectedRoute>} />
-            <Route path="/eal-stock" exact element={<ProtectedRoute><EALStock /></ProtectedRoute>} />
-            <Route path="/find-eal" exact element={<ProtectedRoute><FindEAL /></ProtectedRoute>} />
-            <Route path="/items" exact element={<ProtectedRoute><Items /></ProtectedRoute>} />
-            <Route path="/packs" exact element={<ProtectedRoute><Packs /></ProtectedRoute>} />
-            <Route path="/delivery-depots" exact element={<ProtectedRoute><DeliveryDepots /></ProtectedRoute>} />
-            <Route path="/companies" exact element={<ProtectedRoute><Companies /></ProtectedRoute>} />
-            <Route path="/roles" exact element={<ProtectedRoute><Roles /></ProtectedRoute>} />
+            <Route path="/users" exact element={<ProtectedRoute permission="users:manage"><Users /></ProtectedRoute>} />
+            <Route path="/dashboard" exact element={<ProtectedRoute permission="dashboard:view"><Home /></ProtectedRoute>} />
+            <Route path="/eal-issuance" exact element={<ProtectedRoute permission="issuance:view"><EALIssuance /></ProtectedRoute>} />
+            <Route path="/eal-usage" exact element={<ProtectedRoute permission="usage:view"><EALUsage /></ProtectedRoute>} />
+            <Route path="/finished-stock" exact element={<ProtectedRoute permission="finished:view"><FinishedStock /></ProtectedRoute>} />
+            <Route path="/dispatch" exact element={<ProtectedRoute permission="dispatch:view"><Dispatch /></ProtectedRoute>} />
+            <Route path="/eal-stock" exact element={<ProtectedRoute permission="stock:view"><EALStock /></ProtectedRoute>} />
+            <Route path="/find-eal" exact element={<ProtectedRoute permission="eal:trace"><FindEAL /></ProtectedRoute>} />
+            <Route path="/items" exact element={<ProtectedRoute permission="masterdata:view"><Items /></ProtectedRoute>} />
+            <Route path="/packs" exact element={<ProtectedRoute permission="masterdata:view"><Packs /></ProtectedRoute>} />
+            <Route path="/delivery-depots" exact element={<ProtectedRoute permission="masterdata:view"><DeliveryDepots /></ProtectedRoute>} />
+            <Route path="/companies" exact element={<ProtectedRoute permission="masterdata:view"><Companies /></ProtectedRoute>} />
+            <Route path="/roles" exact element={<ProtectedRoute permission="roles:manage"><Roles /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
           </ErrorBoundary>
