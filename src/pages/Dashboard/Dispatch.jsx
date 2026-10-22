@@ -1,6 +1,14 @@
-import React, { useContext, useEffect, useMemo, useState } from 'react'
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { LuDownload, LuLink, LuPlus, LuTriangleAlert, LuX } from 'react-icons/lu'
+import {
+  LuChevronDown,
+  LuChevronUp,
+  LuDownload,
+  LuPlus,
+  LuSearch,
+  LuTriangleAlert,
+  LuX
+} from 'react-icons/lu'
 import DashboardLayout from '../../components/layouts/DashboardLayout'
 import Modal from '../../components/Modal/Modal'
 import DateRangeModal from '../../components/Modal/DateRangeModal'
@@ -45,6 +53,12 @@ const bodyCell = 'border-t border-[#EDECE8] px-3.5 py-3 text-[13px] text-[#2A2F3
 const fieldClass =
   'h-[38px] w-full rounded-lg border border-[#D7D6D1] bg-white px-[11px] font-numeric text-[13.5px] tabular-nums text-[#15181C] outline-none focus:border-[#15594A] focus:ring-[3px] focus:ring-[#E7F0EC]'
 
+const railControl =
+  'flex h-8 items-center gap-2 rounded-lg border border-[#E3E2DE] bg-white px-2.5 text-left text-[11.5px] text-[#15181C]'
+
+/** The ten digits have to be there before any judgement about them means anything. */
+const tenDigits = (value) => /^\d{10}$/.test(String(value ?? '').trim())
+
 const Dispatch = () => {
   const [dispatches, setDispatches] = useState([])
   const [loading, setLoading] = useState(true)
@@ -55,6 +69,7 @@ const Dispatch = () => {
   const [company, setCompany] = useState('')
   const [market, setMarket] = useState('')
   const [statusTab, setStatusTab] = useState('open')
+  const [search, setSearch] = useState('')
   const [companies, setCompanies] = useState([])
 
   const [selectedId, setSelectedId] = useState(null)
@@ -67,7 +82,7 @@ const Dispatch = () => {
   const mayStatus = can(user, 'dispatch:status')
   const mayLink = can(user, 'dispatch:link')
 
-  const [linkItemId, setLinkItemId] = useState(null)
+  const [openItemId, setOpenItemId] = useState(null)
   const [newEALData, setNewEALData] = useState({ prefix: '', serialFrom: '', serialTo: '' })
 
   const [formOpen, setFormOpen] = useState(false)
@@ -78,6 +93,15 @@ const Dispatch = () => {
   const [unlinkConfirmText, setUnlinkConfirmText] = useState('')
 
   const [reloadToken, setReloadToken] = useState(0)
+
+  // Below lg the two panes stack, so picking a note moves something that is
+  // off screen. Bring it into view rather than leaving the press looking
+  // like it did nothing.
+  const detailRef = useRef(null)
+  const scrollToDetail = () => {
+    if (window.matchMedia('(min-width: 1024px)').matches) return
+    detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   const onApplyDateRange = (selectedRange) => setDateRange(selectedRange)
 
@@ -124,24 +148,36 @@ const Dispatch = () => {
   }, [])
 
   const tab = STATUS_TABS.find((entry) => entry.key === statusTab) || STATUS_TABS[0]
-  const notes = useMemo(
-    () => (tab.matches ? dispatches.filter((note) => tab.matches.includes(note.status)) : dispatches),
-    [dispatches, tab]
-  )
 
-  // Keep a selection only while it is still in the list.
+  const notes = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    return dispatches.filter((note) => {
+      if (tab.matches && !tab.matches.includes(note.status)) return false
+      if (!term) return true
+      return [note.deliveryTo?.name, note.company?.name, note.company?.code, shortReference(note._id)]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term))
+    })
+  }, [dispatches, tab, search])
+
+  // The detail only ever reads from the filtered list, so a note the filters
+  // have hidden can never be the one still on show.
+  const selected = notes.find((note) => note._id === selectedId) || null
+
   useEffect(() => {
     if (notes.length === 0) {
-      setSelectedId(null)
+      if (selectedId !== null) setSelectedId(null)
       return
     }
     if (!notes.some((note) => note._id === selectedId)) setSelectedId(notes[0]._id)
   }, [notes, selectedId])
 
-  const selected = dispatches.find((note) => note._id === selectedId) || null
-  const linkItem = selected?.items?.find((entry) => entry.item?._id === linkItemId) || null
+  useEffect(() => {
+    setOpenItemId(null)
+    setNewEALData({ prefix: '', serialFrom: '', serialTo: '' })
+  }, [selectedId])
 
-  useEffect(() => { setLinkItemId(null) }, [selectedId])
+  const openItem = selected?.items?.find((entry) => entry.item?._id === openItemId) || null
 
   const replaceNote = (updated) => {
     setDispatches((previous) => previous.map((note) => (note._id === updated._id ? updated : note)))
@@ -150,44 +186,60 @@ const Dispatch = () => {
   const linkedCases = (note) => note?.EALIssuedTotalQuantity || 0
   const totalCases = (note) => note?.totalQuantity || 0
   const isFullyLinked = (note) => linkedCases(note) + TOLERANCE >= totalCases(note)
+  const casesLeft = (entry) => (entry?.quantityInCases || 0) - (entry?.EALIssuedQuantity || 0)
+
+  const filtersActive = Boolean(search.trim() || company || market)
+  const clearFilters = () => { setSearch(''); setCompany(''); setMarket('') }
+
+  // With company scoping on, most people only ever see their own company, and a
+  // picker whose one real option is "yours" is just furniture.
+  const showCompanyFilter = companies.length > 1
 
   /** Mirrors the rules addEALLinkToDispatchItem enforces, so a bad range is
-      caught before it is sent. */
+      caught before it is sent. A check stays unjudged until the fields it
+      reads actually hold something, so an untouched form shows no verdicts. */
   const linkChecks = useMemo(() => {
-    if (!linkItem) return null
+    if (!openItem) return null
 
-    const perCase = linkItem.item?.bottlesPerCase || 0
+    const perCase = openItem.item?.bottlesPerCase || 0
+    const prefix = newEALData.prefix.trim()
+    const serialsReady = tenDigits(newEALData.serialFrom) && tenDigits(newEALData.serialTo)
     const from = Number(newEALData.serialFrom)
     const to = Number(newEALData.serialTo)
-    const count = Number.isFinite(from) && Number.isFinite(to) ? to - from + 1 : 0
-    const cases = perCase > 0 ? count / perCase : 0
-    const remaining = (linkItem.quantityInCases || 0) - (linkItem.EALIssuedQuantity || 0)
+    const count = serialsReady ? to - from + 1 : 0
+    const cases = serialsReady && perCase > 0 && count > 0 ? count / perCase : 0
+    const remaining = casesLeft(openItem)
+
+    const check = (ready, ok, text) => ({ state: !ready ? 'pending' : ok ? 'ok' : 'bad', text })
 
     const checks = [
-      {
-        ok: /^[A-Z]{3}$/.test(newEALData.prefix.trim()),
-        text: 'Prefix is three uppercase letters.'
-      },
-      {
-        ok: /^\d{10}$/.test(newEALData.serialFrom) && /^\d{10}$/.test(newEALData.serialTo),
-        text: 'Both serials are ten digits.'
-      },
-      {
-        ok: count > 0,
-        text: 'Serial to is above serial from.'
-      },
-      {
-        ok: perCase > 0 && count > 0 && count % perCase === 0 && to % perCase === 0 && (from - 1) % perCase === 0,
-        text: `The range closes on a whole case of ${perCase || '—'}.`
-      },
-      {
-        ok: cases > 0 && cases <= remaining + TOLERANCE,
-        text: `Fits the ${formatQuantity(remaining)} case(s) still to link.`
-      }
+      check(prefix.length > 0, /^[A-Z]{3}$/.test(prefix), 'Prefix is three uppercase letters.'),
+      check(
+        Boolean(newEALData.serialFrom || newEALData.serialTo),
+        serialsReady,
+        'Both serials are ten digits.'
+      ),
+      check(serialsReady, count > 0, 'Serial to is above serial from.'),
+      check(
+        serialsReady && count > 0,
+        perCase > 0 && count % perCase === 0 && to % perCase === 0 && (from - 1) % perCase === 0,
+        `The range closes on a whole case of ${perCase || '—'}.`
+      ),
+      check(
+        cases > 0,
+        cases <= remaining + TOLERANCE,
+        `Fits the ${formatQuantity(remaining)} case(s) still to link.`
+      )
     ]
 
-    return { checks, cases, remaining, valid: checks.every((check) => check.ok) }
-  }, [linkItem, newEALData])
+    return {
+      checks,
+      cases,
+      countKnown: serialsReady && count > 0,
+      remaining,
+      valid: checks.every((entry) => entry.state === 'ok')
+    }
+  }, [openItem, newEALData])
 
   const handleSubmitDispatch = async (dispatch) => {
     const { company: noteCompany, deliveryTo, dateDispatched, market: noteMarket, items } = dispatch
@@ -274,7 +326,7 @@ const Dispatch = () => {
       setBusy(true)
       const response = await axiosInstance.post(API_PATHS.EALDISPATCH.ADD_EAL_LINK, {
         dispatchId: selected._id,
-        itemId: linkItem.item._id,
+        itemId: openItem.item._id,
         prefix: newEALData.prefix,
         serialFrom: newEALData.serialFrom,
         serialTo: newEALData.serialTo
@@ -335,59 +387,129 @@ const Dispatch = () => {
     )
   }
 
-  const statusActions = () => {
+  const actionButton = (label, onClick, tone = 'primary') => (
+    <button
+      key={label}
+      type="button"
+      disabled={busy}
+      onClick={onClick}
+      className={
+        tone === 'primary'
+          ? 'h-9 shrink-0 cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-semibold text-white hover:bg-[#124C3F] disabled:opacity-60'
+          : tone === 'danger'
+            ? 'h-9 shrink-0 cursor-pointer rounded-lg border border-[#E3BDBB] bg-white px-3.5 text-[13px] font-medium text-[#9B2C2C] hover:bg-[#FCEBEA] disabled:opacity-60'
+            : 'h-9 shrink-0 cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-3.5 text-[13px] font-medium text-[#2A2F36] hover:bg-[#FAFAF8] disabled:opacity-60'
+      }
+    >
+      {label}
+    </button>
+  )
+
+  /** The buttons that change the note itself. Moving it along its statuses is
+      the next-step bar's job, so none of that is repeated here. */
+  const noteActions = () => {
+    if (!selected) return []
+    const id = selected._id
+
+    if (selected.status === 'draft') {
+      return [
+        mayEdit && actionButton('Edit note', () => { setFormDispatch(selected); setFormOpen(true) }, 'secondary'),
+        mayDelete && actionButton('Delete', () => deleteDispatch(id), 'danger')
+      ].filter(Boolean)
+    }
+
+    if (selected.status === 'final' && mayStatus && linkedCases(selected) === 0) {
+      return [actionButton('Back to draft', () => updateDispatchStatus(id, 'draft'), 'secondary')]
+    }
+
+    return []
+  }
+
+  /** The one thing to do next, with the reason it can or cannot be done yet. */
+  const nextStep = () => {
     if (!selected) return null
     const id = selected._id
+    const done = linkedCases(selected)
+    const total = totalCases(selected)
+    const pct = total > 0 ? Math.min(100, (done / total) * 100) : 0
     const full = isFullyLinked(selected)
+    const unlinkedItems = (selected.items || []).filter((entry) => casesLeft(entry) > TOLERANCE)
 
-    const button = (label, onClick, tone = 'primary') => (
-      <button
-        key={label}
-        type="button"
-        disabled={busy}
-        onClick={onClick}
-        className={
-          tone === 'primary'
-            ? 'h-9 cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-semibold text-white hover:bg-[#124C3F] disabled:opacity-60'
-            : tone === 'danger'
-              ? 'h-9 cursor-pointer rounded-lg border border-[#E3BDBB] bg-white px-3.5 text-[13px] font-medium text-[#9B2C2C] hover:bg-[#FCEBEA] disabled:opacity-60'
-              : 'h-9 cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-3.5 text-[13px] font-medium text-[#2A2F36] hover:bg-[#FAFAF8] disabled:opacity-60'
-        }
-      >
-        {label}
-      </button>
-    )
+    if (selected.status === 'draft') {
+      return {
+        tone: 'neutral',
+        title: 'This note is still a draft',
+        detail: 'Finalise it to start linking serial ranges to its cases.',
+        action: mayStatus ? actionButton('Finalise', () => updateDispatchStatus(id, 'final')) : null
+      }
+    }
 
-    switch (selected.status) {
-      case 'draft':
-        return [
-          mayEdit && button('Edit note', () => { setFormDispatch(selected); setFormOpen(true) }, 'secondary'),
-          mayDelete && button('Delete', () => deleteDispatch(id), 'danger'),
-          mayStatus && button('Finalise', () => updateDispatchStatus(id, 'final'))
-        ].filter(Boolean)
-      case 'final':
-        return [
-          mayStatus && linkedCases(selected) === 0 &&
-            button('Back to draft', () => updateDispatchStatus(id, 'draft'), 'secondary'),
-          full
-            ? mayStatus && button('Mark loaded', () => setVehicleOpen(true))
-            : <span key="pending" className="self-center text-[12.5px] text-[#8A5A00]">Pending EAL linking</span>
-        ].filter(Boolean)
-      case 'loaded':
-        return [mayStatus && button('Mark dispatched', () => updateDispatchStatus(id, 'dispatched'))].filter(Boolean)
-      case 'dispatched':
-        return [mayStatus && button('Mark delivered', () => updateDispatchStatus(id, 'delivered'))].filter(Boolean)
-      default:
-        return null
+    if (selected.status === 'final' && !full) {
+      return {
+        tone: 'warn',
+        title: unlinkedItems.length === 1
+          ? 'One item still needs serial ranges'
+          : `${formatQuantity(unlinkedItems.length)} items still need serial ranges`,
+        detail: 'This note cannot be marked loaded until every case carries one.',
+        progress: { done, total, pct },
+        action: mayLink && unlinkedItems.length > 0
+          ? actionButton('Link next item', () => {
+            setOpenItemId(unlinkedItems[0].item?._id)
+            setNewEALData({ prefix: '', serialFrom: '', serialTo: '' })
+          })
+          : null
+      }
+    }
+
+    if (selected.status === 'final' && full) {
+      return {
+        tone: 'good',
+        title: 'Every case carries a serial range',
+        detail: 'Record the vehicle to mark this note loaded.',
+        progress: { done, total, pct: 100 },
+        action: mayStatus ? actionButton('Mark loaded', () => setVehicleOpen(true)) : null
+      }
+    }
+
+    if (selected.status === 'loaded') {
+      return {
+        tone: 'good',
+        title: 'Loaded and ready to leave',
+        detail: 'Mark it dispatched once the lorry is away.',
+        action: mayStatus ? actionButton('Mark dispatched', () => updateDispatchStatus(id, 'dispatched')) : null
+      }
+    }
+
+    if (selected.status === 'dispatched') {
+      return {
+        tone: 'good',
+        title: 'On the road',
+        detail: 'Mark it delivered once the depot confirms receipt.',
+        action: mayStatus ? actionButton('Mark delivered', () => updateDispatchStatus(id, 'delivered')) : null
+      }
+    }
+
+    return {
+      tone: 'good',
+      title: 'Delivered',
+      detail: 'Nothing left to do on this note.',
+      action: null
     }
   }
 
+  const step = nextStep()
+  const stepTone = {
+    warn: { border: '#C07A1E', bar: '#C07A1E' },
+    good: { border: '#15594A', bar: '#15594A' },
+    neutral: { border: '#8A919B', bar: '#8A919B' }
+  }[step?.tone || 'neutral']
+
   return (
     <DashboardLayout activeMenu="Dispatch">
-      <div className="mx-auto flex max-w-[1400px] flex-col gap-4">
+      <div className="mx-auto flex max-w-[1500px] flex-col gap-3.5 lg:h-[calc(100vh-100px)] lg:min-h-[540px]">
 
         {/* Page header */}
-        <div className="flex flex-wrap items-end justify-between gap-3.5">
+        <div className="flex shrink-0 flex-wrap items-end justify-between gap-3.5">
           <div>
             <h1 className="m-0 text-[25px] font-semibold tracking-[-0.022em]">Dispatch</h1>
             <p className="mt-1.5 mb-0 text-[13px] text-[#5A636D]">
@@ -417,70 +539,109 @@ const Dispatch = () => {
           </div>
         </div>
 
-        {/* Filter bar */}
-        <div className="flex flex-wrap items-center gap-2 rounded-[11px] border border-[#E3E2DE] bg-white px-3 py-2.5">
-          <DateRangeModal dateRange={dateRange} onApplyDateRange={onApplyDateRange} />
-          <span className="mx-0.5 h-[22px] w-px bg-[#E3E2DE]" />
-          <label className="flex h-[34px] items-center gap-[7px] rounded-lg border border-[#E3E2DE] px-2.5 text-[12.5px]">
-            <span className="text-[#5A636D]">Company</span>
-            <select
-              value={company}
-              onChange={({ target }) => setCompany(target.value)}
-              className="cursor-pointer border-0 bg-transparent font-medium text-[#15181C] outline-none"
-            >
-              <option value="">All</option>
-              {companies.map((option) => (
-                <option key={option._id} value={option._id}>{option.name}</option>
-              ))}
-            </select>
-          </label>
-          <div role="group" aria-label="Market" className="flex h-[34px] gap-0.5 rounded-lg bg-[#F2F1ED] p-[3px]">
-            {[
-              { value: '', label: 'All' },
-              { value: 'local', label: 'Local' },
-              { value: 'export', label: 'Export' }
-            ].map((option) => (
-              <button
-                key={option.label}
-                type="button"
-                aria-pressed={market === option.value}
-                onClick={() => setMarket(option.value)}
-                className={`cursor-pointer rounded-md px-3 text-[12.5px] ${
-                  market === option.value ? 'bg-white font-semibold text-[#15181C] shadow-sm' : 'text-[#4A5159]'
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {error && (
-          <p role="alert" className="m-0 rounded-[10px] border border-[#F3C9C7] bg-[#FCEBEA] px-4 py-3 text-[13px] text-[#7A2322]">
+          <p role="alert" className="m-0 shrink-0 rounded-[10px] border border-[#F3C9C7] bg-[#FCEBEA] px-4 py-3 text-[13px] text-[#7A2322]">
             {error}
           </p>
         )}
 
-        <div className="flex flex-wrap items-start gap-4">
+        {/* The rail holds a fixed width so the detail can never be pushed below
+            it on a laptop. Above lg each side scrolls on its own and the page
+            itself does not scroll at all. */}
+        <div className="flex min-h-0 flex-col gap-3.5 lg:flex-1 lg:flex-row">
 
-          {/* Master list */}
-          <section className="min-w-0 max-w-[400px] flex-[1_1_320px] overflow-hidden rounded-xl border border-[#E3E2DE] bg-white">
-            <div role="group" aria-label="Filter by status" className="flex gap-0.5 border-b border-[#EDECE8] px-3 py-2.5">
-              {STATUS_TABS.map((entry) => (
-                <button
-                  key={entry.key}
-                  type="button"
-                  aria-pressed={statusTab === entry.key}
-                  onClick={() => setStatusTab(entry.key)}
-                  className={`h-[30px] flex-1 cursor-pointer rounded-[7px] text-xs ${
-                    statusTab === entry.key
-                      ? 'bg-[#15181C] font-semibold text-white'
-                      : 'text-[#4A5159] hover:bg-[#FAFAF8]'
-                  }`}
-                >
-                  {entry.label}
-                </button>
-              ))}
+          {/* ---------------- Note list ---------------- */}
+          <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#E3E2DE] bg-white lg:h-full lg:w-[320px] lg:shrink-0">
+
+            {/* Everything here narrows the list and nothing else, which is why it
+                sits inside the list rather than in a bar across the whole page. */}
+            <div className="flex shrink-0 flex-col gap-2 border-b border-[#EDECE8] px-3 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="m-0 text-[15px] font-semibold tracking-[-0.015em]">Dispatch notes</h2>
+                <span className="font-numeric text-[11px] text-[#5A636D] tabular-nums">
+                  {formatQuantity(notes.length)}
+                </span>
+              </div>
+
+              <label className="flex h-8 items-center gap-2 rounded-lg border border-[#E3E2DE] bg-[#F6F5F3] px-2.5">
+                <LuSearch className="shrink-0 text-[#8A919B]" />
+                <span className="sr-only">Search notes by depot, company or reference</span>
+                <input
+                  value={search}
+                  onChange={({ target }) => setSearch(target.value)}
+                  placeholder="Depot, company or reference"
+                  className="min-w-0 flex-1 border-0 bg-transparent text-[11.5px] text-[#15181C] outline-none"
+                />
+              </label>
+
+              <div role="group" aria-label="Filter by status" className="flex gap-0.5 rounded-lg bg-[#F2F1ED] p-[3px]">
+                {STATUS_TABS.map((entry) => (
+                  <button
+                    key={entry.key}
+                    type="button"
+                    aria-pressed={statusTab === entry.key}
+                    onClick={() => setStatusTab(entry.key)}
+                    className={`h-[27px] flex-1 cursor-pointer rounded-md text-[11.5px] whitespace-nowrap ${
+                      statusTab === entry.key
+                        ? 'bg-white font-semibold text-[#15181C] shadow-sm'
+                        : 'text-[#5A636D] hover:text-[#15181C]'
+                    }`}
+                  >
+                    {entry.label}
+                  </button>
+                ))}
+              </div>
+
+              <DateRangeModal dateRange={dateRange} onApplyDateRange={onApplyDateRange} />
+
+              <div className="flex gap-1.5">
+                {showCompanyFilter && (
+                  <label className={`${railControl} min-w-0 flex-1`}>
+                    <span className="sr-only">Company</span>
+                    <select
+                      value={company}
+                      onChange={({ target }) => setCompany(target.value)}
+                      className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-[11.5px] outline-none"
+                    >
+                      <option value="">All companies</option>
+                      {companies.map((option) => (
+                        <option key={option._id} value={option._id}>{option.code || option.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <label className={`${railControl} min-w-0 flex-1`}>
+                  <span className="sr-only">Market</span>
+                  <select
+                    value={market}
+                    onChange={({ target }) => setMarket(target.value)}
+                    className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-[11.5px] outline-none"
+                  >
+                    <option value="">All markets</option>
+                    <option value="local">Local</option>
+                    <option value="export">Export</option>
+                  </select>
+                </label>
+              </div>
+
+              {/* Only when something is actually hiding notes, so the reason one
+                  is missing is never off screen. */}
+              {filtersActive && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[11px] text-[#5A636D]">
+                    Showing{' '}
+                    <strong className="font-semibold text-[#15181C]">{formatQuantity(notes.length)}</strong>
+                    {' '}of {formatQuantity(dispatches.length)} notes
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="shrink-0 cursor-pointer border-0 bg-transparent p-0 text-[11px] font-medium text-[#15594A] underline underline-offset-[3px]"
+                  >
+                    Clear filters
+                  </button>
+                </div>
+              )}
             </div>
 
             {loading ? (
@@ -490,51 +651,77 @@ const Dispatch = () => {
                 <EmptyState
                   icon={<TruckIcon size={26} strokeWidth={1.5} />}
                   title="No dispatch notes"
-                  description="Nothing in this period under this filter."
+                  description={filtersActive
+                    ? 'Nothing matches these filters. Clear them to see the rest.'
+                    : 'Nothing in this period under this status.'}
+                  action={filtersActive ? (
+                    <button
+                      type="button"
+                      onClick={clearFilters}
+                      className="h-[34px] cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[12.5px] font-medium text-white"
+                    >
+                      Clear filters
+                    </button>
+                  ) : undefined}
                 />
               </div>
             ) : (
-              <ul className="m-0 max-h-[640px] list-none overflow-y-auto p-0">
+              <ul className="m-0 min-h-0 flex-1 list-none overflow-y-auto p-0 max-lg:max-h-[360px]">
                 {notes.map((note) => {
                   const chosen = note._id === selectedId
-                  const pct = totalCases(note) > 0 ? (linkedCases(note) / totalCases(note)) * 100 : 0
+                  const done = linkedCases(note)
+                  const total = totalCases(note)
+                  const pct = total > 0 ? Math.min(100, (done / total) * 100) : 0
+                  const full = done + TOLERANCE >= total
                   return (
                     <li key={note._id} className="border-b border-[#F3F2EF]">
                       <button
                         type="button"
-                        onClick={() => setSelectedId(note._id)}
-                        className={`block w-full cursor-pointer px-4 py-3.5 text-left ${chosen ? 'bg-[#F3F8F6]' : 'hover:bg-[#FAFAF8]'}`}
+                        aria-current={chosen}
+                        onClick={() => { setSelectedId(note._id); scrollToDetail() }}
+                        className={`block w-full cursor-pointer py-3 pr-3.5 pl-3 text-left ${chosen ? 'bg-[#F3F8F6]' : 'hover:bg-[#FAFAF8]'}`}
                         style={{ borderLeft: `3px solid ${chosen ? '#15594A' : 'transparent'}` }}
                       >
-                        <span className="flex items-center justify-between gap-2.5">
-                          <span className="font-numeric text-[13px] font-semibold text-[#15181C]">
-                            {shortReference(note._id)}
+                        {/* The depot leads: it is what people say out loud. */}
+                        <span className="flex items-start justify-between gap-2">
+                          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#15181C]">
+                            {note.deliveryTo?.name || 'Depot not set'}
                           </span>
                           <StatusPill status={note.status} />
                         </span>
-                        <span className="mt-1.5 block truncate text-xs text-[#4A5159]">
-                          {note.company?.name} · {note.deliveryTo?.name}
-                        </span>
-                        <span className="mt-2.5 flex items-center gap-[9px]">
-                          <span className="h-1.5 flex-1 overflow-hidden rounded-[3px] bg-[#EFEEEA]">
-                            <span
-                              className="block h-full rounded-[3px]"
-                              style={{
-                                width: `${pct}%`,
-                                backgroundColor: pct >= 100 ? '#15594A' : '#C07A1E'
-                              }}
-                            />
-                          </span>
-                          <span className="font-numeric shrink-0 text-[11px] text-[#5A636D] tabular-nums">
-                            {formatQuantity(linkedCases(note))} / {formatQuantity(totalCases(note))}
+                        <span className="mt-[5px] flex items-center gap-1.5">
+                          {note.company?.code && (
+                            <span className="font-numeric shrink-0 rounded-[4px] bg-[#F0EFEC] px-[5px] py-px text-[10px] font-semibold tracking-[0.04em] text-[#3C434B]">
+                              {note.company.code}
+                            </span>
+                          )}
+                          <span className="min-w-0 flex-1 truncate text-[11.5px] text-[#4A5159]">
+                            {note.company?.name || '—'}
                           </span>
                         </span>
-                        <span className="mt-[7px] flex items-center justify-between gap-2.5">
+                        <span className="mt-1 flex items-center gap-1.5">
+                          <span className="font-numeric text-[11px] text-[#5A636D] tabular-nums">
+                            {shortReference(note._id)}
+                          </span>
+                          <span className="text-[11px] text-[#C3C2BD]">·</span>
                           <span className="font-numeric text-[11px] text-[#5A636D] tabular-nums">
                             {formatDate(note.dateDispatched)}
                           </span>
-                          <span className="font-numeric text-[11px] text-[#5A636D] tabular-nums">
-                            {formatQuantity(totalCases(note))} cases
+                        </span>
+                        <span className="mt-2.5 flex items-center gap-2">
+                          <span className="h-[5px] flex-1 overflow-hidden rounded-[3px] bg-[#EFEEEA]">
+                            <span
+                              className="block h-full rounded-[3px]"
+                              style={{ width: `${pct}%`, backgroundColor: full ? '#15594A' : '#C07A1E' }}
+                            />
+                          </span>
+                          <span
+                            className="font-numeric shrink-0 text-[11px] font-medium tabular-nums"
+                            style={{ color: full ? '#5A636D' : '#8A5A00' }}
+                          >
+                            {full
+                              ? `${formatQuantity(total)} cases`
+                              : `${formatQuantity(done)} / ${formatQuantity(total)}`}
                           </span>
                         </span>
                       </button>
@@ -545,8 +732,8 @@ const Dispatch = () => {
             )}
           </section>
 
-          {/* Detail */}
-          <section className="flex min-w-0 flex-[999_1_560px] flex-col gap-3.5">
+          {/* ---------------- Detail ---------------- */}
+          <section ref={detailRef} className="flex min-h-0 min-w-0 flex-1 scroll-mt-4 flex-col lg:h-full lg:overflow-y-auto">
             {!selected ? (
               <div className="rounded-xl border border-[#E3E2DE] bg-white px-[18px] py-5">
                 <EmptyState
@@ -556,284 +743,376 @@ const Dispatch = () => {
                 />
               </div>
             ) : (
-              <>
-                <div className="overflow-hidden rounded-xl border border-[#E3E2DE] bg-white">
-                  <div className="flex flex-wrap items-center gap-3.5 border-b border-[#EDECE8] px-5 py-[18px]">
-                    <div className="min-w-0 flex-[1_1_260px]">
-                      <h2 className="m-0 flex items-center gap-2.5 text-[19px] font-semibold tracking-[-0.018em]">
-                        <span className="font-numeric">{shortReference(selected._id)}</span>
-                        <StatusPill status={selected.status} />
-                        <span
-                          className="inline-block rounded-[5px] px-2 py-[3px] text-[11px] font-semibold"
-                          style={{
-                            color: marketStyle(selected.market).fg,
-                            backgroundColor: marketStyle(selected.market).bg
-                          }}
-                        >
-                          {marketStyle(selected.market).label}
-                        </span>
-                      </h2>
-                      <p className="mt-1.5 mb-0 text-[12.5px] text-[#5A636D]">
-                        {selected.company?.name} · {selected.deliveryTo?.name} ·{' '}
-                        <span className="font-numeric tabular-nums">{formatDate(selected.dateDispatched)}</span>
-                        {selected.vehicleDetails?.vehicleNumber && (
-                          <> · {selected.vehicleDetails.vehicleNumber}
-                            {selected.vehicleDetails.driverName && ` (${selected.vehicleDetails.driverName})`}
-                          </>
-                        )}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">{statusActions()}</div>
+              <div className="flex flex-col gap-3.5">
+
+                {/* Identity */}
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-[1_1_300px]">
+                    <h2 className="m-0 flex flex-wrap items-center gap-2.5 text-[21px] font-semibold tracking-[-0.02em]">
+                      {selected.deliveryTo?.name || 'Depot not set'}
+                      <StatusPill status={selected.status} />
+                      <span
+                        className="inline-block rounded-[5px] px-2 py-[3px] text-[11px] font-semibold"
+                        style={{
+                          color: marketStyle(selected.market).fg,
+                          backgroundColor: marketStyle(selected.market).bg
+                        }}
+                      >
+                        {marketStyle(selected.market).label}
+                      </span>
+                    </h2>
+                    <p className="mt-1.5 mb-0 text-[12.5px] text-[#5A636D]">
+                      <span className="font-numeric tabular-nums">{shortReference(selected._id)}</span>
+                      {' · '}{selected.company?.name || '—'}
+                      {' · '}
+                      <span className="font-numeric tabular-nums">{formatDate(selected.dateDispatched)}</span>
+                    </p>
                   </div>
+                  <div className="flex flex-wrap gap-2">{noteActions()}</div>
+                </div>
 
-                  {/* Linking progress */}
-                  {isFullyLinked(selected) ? (
-                    <div className="flex flex-wrap items-center gap-3.5 border-b border-[#C9DED6] bg-[#F3F8F6] px-5 py-3.5">
-                      <CheckIcon size={17} strokeWidth={2.2} />
-                      <span className="min-w-0 flex-[1_1_280px] text-[12.5px] text-[#0D3C32]">
-                        <strong className="font-semibold">Every case carries a serial range.</strong>{' '}
-                        {formatQuantity(totalCases(selected))} of {formatQuantity(totalCases(selected))} linked.
-                      </span>
+                {/* The state, the blocker, the progress and the one action, together */}
+                {step && (
+                  <div
+                    className="flex flex-wrap items-center gap-4 rounded-xl border border-[#E3E2DE] bg-white px-[18px] py-4"
+                    style={{ borderLeft: `4px solid ${stepTone.border}` }}
+                  >
+                    <div className="min-w-0 flex-[1_1_280px]">
+                      <p className="m-0 flex items-center gap-2 text-[14px] font-semibold tracking-[-0.008em] text-[#15181C]">
+                        {step.tone === 'warn' && <LuTriangleAlert className="shrink-0 text-[#C07A1E]" />}
+                        {step.tone === 'good' && (
+                          <span className="shrink-0 text-[#15594A]"><CheckIcon size={16} strokeWidth={2.4} /></span>
+                        )}
+                        {step.title}
+                      </p>
+                      <p className="mt-1 mb-0 text-[12.5px] text-[#5A636D]">{step.detail}</p>
                     </div>
-                  ) : (
-                    <div className="flex flex-wrap items-center gap-3.5 border-b border-[#EBD9AC] bg-[#FBF1DC] px-5 py-3.5">
-                      <LuTriangleAlert className="shrink-0 text-[#8A5A00]" />
-                      <span className="min-w-0 flex-[1_1_280px] text-[12.5px] text-[#5C3D06]">
-                        <strong className="font-semibold text-[#3F2A04]">
-                          {formatQuantity(linkedCases(selected))} of {formatQuantity(totalCases(selected))} cases carry a serial range.
-                        </strong>{' '}
-                        The note cannot be loaded until every case is linked.
-                      </span>
-                      <span className="h-2 max-w-[280px] flex-[1_1_200px] overflow-hidden rounded bg-[#EBD9AC]">
-                        <span
-                          className="block h-full rounded bg-[#C07A1E]"
-                          style={{
-                            width: `${totalCases(selected) > 0 ? (linkedCases(selected) / totalCases(selected)) * 100 : 0}%`
-                          }}
-                        />
-                      </span>
-                    </div>
-                  )}
+                    {step.progress && (
+                      <div className="flex w-[190px] shrink-0 flex-col gap-1.5">
+                        <span className="flex items-baseline justify-between gap-2">
+                          <span className="font-numeric text-[17px] font-semibold text-[#15181C] tabular-nums">
+                            {formatQuantity(step.progress.done)}
+                            <span className="font-normal text-[#8A919B]"> / {formatQuantity(step.progress.total)}</span>
+                          </span>
+                          <span className="text-[11px] text-[#5A636D]">cases linked</span>
+                        </span>
+                        <span className="h-[7px] overflow-hidden rounded bg-[#EFEEEA]">
+                          <span
+                            className="block h-full rounded"
+                            style={{ width: `${step.progress.pct}%`, backgroundColor: stepTone.bar }}
+                          />
+                        </span>
+                      </div>
+                    )}
+                    {step.action}
+                  </div>
+                )}
 
-                  {/* Items */}
+                {/* Items — the link form opens inside the row it belongs to */}
+                <div className="overflow-hidden rounded-xl border border-[#E3E2DE] bg-white">
+                  <h3 className="m-0 px-4 pt-3.5 pb-1 text-[13.5px] font-semibold tracking-[-0.01em]">
+                    Items on this note
+                  </h3>
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[640px] border-collapse">
+                    <table className="w-full min-w-[620px] border-collapse">
                       <thead>
                         <tr>
                           <th className={headerCell}>Item</th>
-                          <th className={`${headerCell} text-right`}>Cases</th>
-                          <th className={`${headerCell} text-right`}>Bottles / case</th>
-                          <th className={`${headerCell} text-right`}>Linked</th>
-                          <th className={`${headerCell} text-right`}>Remaining</th>
-                          <th className={headerCell} />
+                          <th className={`${headerCell} w-[88px] text-right`}>Cases</th>
+                          <th className={`${headerCell} w-[88px] text-right`}>Linked</th>
+                          <th className={`${headerCell} w-[150px]`}>Serial cover</th>
+                          <th className={`${headerCell} w-[118px]`} />
                         </tr>
                       </thead>
                       <tbody>
                         {(selected.items || []).map((entry) => {
-                          const remaining = (entry.quantityInCases || 0) - (entry.EALIssuedQuantity || 0)
-                          const active = entry.item?._id === linkItemId
+                          const itemId = entry.item?._id
+                          const left = casesLeft(entry)
+                          const covered = left <= TOLERANCE
+                          const total = entry.quantityInCases || 0
+                          const pct = total > 0 ? Math.min(100, ((entry.EALIssuedQuantity || 0) / total) * 100) : 0
+                          const open = Boolean(itemId) && itemId === openItemId
+                          const ranges = entry.EALLinks || []
+                          const canLink = mayLink && selected.status === 'final'
+                          const expandable = canLink || ranges.length > 0
+
                           return (
-                            <tr key={entry.item?._id || entry._id} className={active ? 'bg-[#F3F8F6]' : ''}>
-                              <td className={`${bodyCell} font-medium text-[#15181C]`}>
-                                <span className="block max-w-[280px] truncate" title={entry.item?.name || undefined}>
-                                  {itemLabel(entry.item) || '—'}
-                                </span>
-                              </td>
-                              <td className={`${bodyCell} font-numeric text-right tabular-nums`}>
-                                {formatQuantity(entry.quantityInCases)}
-                              </td>
-                              <td className={`${bodyCell} font-numeric text-right text-[#5A636D] tabular-nums`}>
-                                {entry.item?.bottlesPerCase ?? '—'}
-                              </td>
-                              <td
-                                className={`${bodyCell} font-numeric text-right font-medium tabular-nums`}
-                                style={{ color: remaining > TOLERANCE ? '#8A5A00' : '#15594A' }}
-                              >
-                                {formatQuantity(entry.EALIssuedQuantity || 0)}
-                              </td>
-                              <td className={`${bodyCell} font-numeric text-right font-semibold tabular-nums`}>
-                                {formatQuantity(remaining)}
-                              </td>
-                              <td className={`${bodyCell} text-right`}>
-                                {selected.status === 'final' && mayLink && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setLinkItemId(active ? null : entry.item?._id)
-                                      setNewEALData({ prefix: '', serialFrom: '', serialTo: '' })
-                                    }}
-                                    className={`h-[30px] cursor-pointer rounded-[7px] border px-[11px] text-xs font-medium ${
-                                      active
-                                        ? 'border-[#15594A] bg-[#15594A] text-white'
-                                        : 'border-[#D7D6D1] bg-white text-[#2A2F36] hover:bg-[#FAFAF8]'
-                                    }`}
-                                  >
-                                    {active ? 'Linking…' : 'Link EALs'}
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
+                            <React.Fragment key={itemId || entry._id}>
+                              <tr className={open ? 'bg-[#F3F8F6]' : ''}>
+                                <td className={`${bodyCell} font-medium text-[#15181C]`}>
+                                  <span className="block truncate" title={entry.item?.name || undefined}>
+                                    {itemLabel(entry.item) || '—'}
+                                  </span>
+                                  <span className="mt-0.5 block truncate text-[11.5px] font-normal text-[#5A636D]">
+                                    {entry.item?.bottlesPerCase
+                                      ? `${formatQuantity(entry.item.bottlesPerCase)} per case`
+                                      : 'Pack size not set'}
+                                  </span>
+                                </td>
+                                <td className={`${bodyCell} font-numeric text-right tabular-nums`}>
+                                  {formatQuantity(total)}
+                                </td>
+                                <td
+                                  className={`${bodyCell} font-numeric text-right font-semibold tabular-nums`}
+                                  style={{ color: covered ? '#15594A' : '#8A5A00' }}
+                                >
+                                  {formatQuantity(entry.EALIssuedQuantity || 0)}
+                                </td>
+                                <td className={bodyCell}>
+                                  <span className="flex items-center gap-2">
+                                    <span className="h-[5px] flex-1 overflow-hidden rounded-[3px] bg-[#EFEEEA]">
+                                      <span
+                                        className="block h-full rounded-[3px]"
+                                        style={{ width: `${pct}%`, backgroundColor: covered ? '#15594A' : '#C07A1E' }}
+                                      />
+                                    </span>
+                                    {covered ? (
+                                      <span className="flex shrink-0 items-center gap-[3px] text-[11px] font-semibold text-[#15594A]">
+                                        <CheckIcon size={12} strokeWidth={2.6} />
+                                        Full
+                                      </span>
+                                    ) : (
+                                      <span className="font-numeric shrink-0 text-[11px] text-[#8A5A00] tabular-nums">
+                                        {formatQuantity(left)} left
+                                      </span>
+                                    )}
+                                  </span>
+                                </td>
+                                <td className={`${bodyCell} text-right`}>
+                                  {expandable && (
+                                    <button
+                                      type="button"
+                                      aria-expanded={open}
+                                      onClick={() => {
+                                        setOpenItemId(open ? null : itemId)
+                                        setNewEALData({ prefix: '', serialFrom: '', serialTo: '' })
+                                      }}
+                                      className={`inline-flex h-[30px] cursor-pointer items-center gap-1.5 rounded-[7px] border px-[11px] text-xs ${
+                                        open
+                                          ? 'border-[#15594A] bg-[#15594A] font-semibold text-white'
+                                          : 'border-[#D7D6D1] bg-white font-medium text-[#2A2F36] hover:bg-[#FAFAF8]'
+                                      }`}
+                                    >
+                                      {open
+                                        ? 'Close'
+                                        : canLink && !covered
+                                          ? 'Link'
+                                          : `${formatQuantity(ranges.length)} range${ranges.length === 1 ? '' : 's'}`}
+                                      {open ? <LuChevronUp /> : <LuChevronDown />}
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+
+                              {open && (
+                                <tr className="bg-[#F3F8F6]">
+                                  <td colSpan={5} className="border-t-0 p-0">
+                                    <div className="mx-3.5 mb-3.5 overflow-hidden rounded-[10px] border border-[#C9DED6] bg-white">
+
+                                      {canLink && (
+                                        <>
+                                          <p className="m-0 px-4 pt-3.5 pb-1 text-[12.5px] text-[#4A5159]">
+                                            Add a serial range for{' '}
+                                            <strong className="font-semibold text-[#15181C]">
+                                              {itemLabel(entry.item)}
+                                            </strong>
+                                            {entry.item?.bottlesPerCase
+                                              ? `. ${formatQuantity(entry.item.bottlesPerCase)} bottles make one case, so the range has to close on a whole case.`
+                                              : '.'}
+                                          </p>
+
+                                          <form
+                                            className="flex flex-wrap items-end gap-3 px-4 pt-2 pb-3"
+                                            onSubmit={(event) => { event.preventDefault(); handleAddEAL() }}
+                                          >
+                                            <div className="flex-[0_0_96px]">
+                                              <label htmlFor="d-prefix" className="mb-1.5 block text-[11.5px] font-medium text-[#3C434B]">Prefix</label>
+                                              <input
+                                                id="d-prefix"
+                                                value={newEALData.prefix}
+                                                onChange={({ target }) => setNewEALData((previous) => ({ ...previous, prefix: target.value.toUpperCase() }))}
+                                                maxLength={3}
+                                                placeholder="ABC"
+                                                className={`${fieldClass} tracking-[0.08em] uppercase`}
+                                              />
+                                            </div>
+                                            <div className="min-w-0 flex-[1_1_150px]">
+                                              <label htmlFor="d-from" className="mb-1.5 block text-[11.5px] font-medium text-[#3C434B]">Serial from</label>
+                                              <input
+                                                id="d-from"
+                                                value={newEALData.serialFrom}
+                                                onChange={({ target }) => setNewEALData((previous) => ({ ...previous, serialFrom: target.value }))}
+                                                inputMode="numeric"
+                                                placeholder="10 digits"
+                                                className={fieldClass}
+                                              />
+                                            </div>
+                                            <div className="min-w-0 flex-[1_1_150px]">
+                                              <label htmlFor="d-to" className="mb-1.5 block text-[11.5px] font-medium text-[#3C434B]">Serial to</label>
+                                              <input
+                                                id="d-to"
+                                                value={newEALData.serialTo}
+                                                onChange={({ target }) => setNewEALData((previous) => ({ ...previous, serialTo: target.value }))}
+                                                inputMode="numeric"
+                                                placeholder="10 digits"
+                                                className={fieldClass}
+                                              />
+                                            </div>
+                                            <div className="flex-[0_0_132px]">
+                                              <span className="mb-1.5 block text-[11.5px] font-medium text-[#3C434B]">Resolves to</span>
+                                              <div className="flex h-[38px] items-center gap-[6px] rounded-lg border border-dashed border-[#C9DED6] bg-[#F3F8F6] px-[11px]">
+                                                {/* Nothing is worked out until both serials really are ten
+                                                    digits; otherwise an empty form reports a fraction of a case. */}
+                                                <span className="font-numeric text-[14px] font-semibold text-[#0D3C32] tabular-nums">
+                                                  {linkChecks?.countKnown ? formatQuantity(linkChecks.cases) : '—'}
+                                                </span>
+                                                <span className="text-[11.5px] text-[#15594A]">cases</span>
+                                              </div>
+                                            </div>
+                                            <button
+                                              type="submit"
+                                              disabled={!linkChecks?.valid || busy}
+                                              className="h-[38px] shrink-0 cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-[15px] text-[13px] font-semibold text-white hover:bg-[#124C3F] disabled:cursor-not-allowed disabled:border-[#E3E2DE] disabled:bg-[#F2F1ED] disabled:text-[#A8ADB5]"
+                                            >
+                                              Add range
+                                            </button>
+                                          </form>
+
+                                          <ul className="m-0 flex list-none flex-col gap-1.5 px-4 pb-3.5">
+                                            {(linkChecks?.checks || []).map((entryCheck) => (
+                                              <li
+                                                key={entryCheck.text}
+                                                className="flex items-start gap-2 text-xs"
+                                                style={{
+                                                  color: entryCheck.state === 'ok'
+                                                    ? '#15594A'
+                                                    : entryCheck.state === 'bad'
+                                                      ? '#9B2C2C'
+                                                      : '#8A919B'
+                                                }}
+                                              >
+                                                <span className="mt-px flex h-[14px] w-[14px] shrink-0 items-center justify-center">
+                                                  {entryCheck.state === 'ok' && <CheckIcon size={14} strokeWidth={2.4} />}
+                                                  {entryCheck.state === 'bad' && <LuX />}
+                                                  {entryCheck.state === 'pending' && (
+                                                    <span className="block h-[5px] w-[5px] rounded-full bg-[#C3C2BD]" />
+                                                  )}
+                                                </span>
+                                                {entryCheck.text}
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </>
+                                      )}
+
+                                      <div className={canLink ? 'border-t border-[#EDECE8]' : ''}>
+                                        {ranges.length === 0 ? (
+                                          <p className="m-0 px-4 py-3 text-xs text-[#5A636D]">
+                                            No ranges linked to this item yet.
+                                          </p>
+                                        ) : (
+                                          <table className="w-full border-collapse">
+                                            <thead>
+                                              <tr>
+                                                <th className={headerCell}>Range linked</th>
+                                                <th className={`${headerCell} text-right`}>Labels</th>
+                                                <th className={`${headerCell} text-right`}>Cases</th>
+                                                <th className={headerCell} />
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {ranges.map((link, index) => {
+                                                const labels = link.serialTo - link.serialFrom + 1
+                                                const perCase = entry.item?.bottlesPerCase || 0
+                                                return (
+                                                  <tr key={`${link.prefix}-${link.serialFrom}-${index}`}>
+                                                    <td className={bodyCell}>
+                                                      <SerialRange
+                                                        prefix={link.prefix}
+                                                        serialFrom={link.serialFrom}
+                                                        serialTo={link.serialTo}
+                                                      />
+                                                    </td>
+                                                    <td className={`${bodyCell} font-numeric text-right tabular-nums`}>
+                                                      {formatQuantity(labels)}
+                                                    </td>
+                                                    <td className={`${bodyCell} font-numeric text-right font-medium tabular-nums`}>
+                                                      {perCase > 0 ? formatQuantity(labels / perCase) : '—'}
+                                                    </td>
+                                                    <td className={`${bodyCell} text-right`}>
+                                                      {canLink && (
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => setUnlinkCandidate({ link, itemId })}
+                                                          className="h-7 cursor-pointer rounded-md border border-[#E3BDBB] bg-white px-2.5 text-xs text-[#9B2C2C] hover:bg-[#FCEBEA]"
+                                                        >
+                                                          Unlink
+                                                        </button>
+                                                      )}
+                                                    </td>
+                                                  </tr>
+                                                )
+                                              })}
+                                            </tbody>
+                                          </table>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
                           )
                         })}
                       </tbody>
+                      <tfoot>
+                        <tr>
+                          <td className={`${bodyCell} border-t border-[#DEDDD8] bg-[#FAFAF8] text-xs font-semibold text-[#3C434B]`}>
+                            {formatQuantity((selected.items || []).length)}{' '}
+                            {(selected.items || []).length === 1 ? 'item' : 'items'}
+                          </td>
+                          <td className={`${bodyCell} font-numeric border-t border-[#DEDDD8] bg-[#FAFAF8] text-right font-semibold tabular-nums`}>
+                            {formatQuantity(totalCases(selected))}
+                          </td>
+                          <td className={`${bodyCell} font-numeric border-t border-[#DEDDD8] bg-[#FAFAF8] text-right font-semibold tabular-nums`}>
+                            {formatQuantity(linkedCases(selected))}
+                          </td>
+                          <td colSpan={2} className={`${bodyCell} border-t border-[#DEDDD8] bg-[#FAFAF8]`} />
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 </div>
 
-                {/* Linking panel */}
-                {linkItem && (
-                  <div className="overflow-hidden rounded-xl border border-[#C9DED6] bg-white">
-                    <div className="flex flex-wrap items-center gap-3 border-b border-[#DCEAE4] bg-[#F3F8F6] px-5 py-[15px]">
-                      <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg bg-[#15594A] text-white">
-                        <LuLink className="text-[15px]" />
-                      </span>
-                      <div className="min-w-0 flex-[1_1_260px]">
-                        <h3 className="m-0 truncate text-[14.5px] font-semibold tracking-[-0.01em]">
-                          Link serial ranges · {itemLabel(linkItem.item)}
-                        </h3>
-                        <p className="mt-[3px] mb-0 text-xs text-[#4A5159]">
-                          {formatQuantity(linkItem.EALIssuedQuantity || 0)} of{' '}
-                          {formatQuantity(linkItem.quantityInCases)} cases linked ·{' '}
-                          {formatQuantity(linkChecks.remaining)} still to link ·{' '}
-                          {linkItem.item?.bottlesPerCase} bottles per case
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setLinkItemId(null)}
-                        className="h-8 cursor-pointer rounded-[7px] border border-[#C9DED6] bg-white px-3 text-[12.5px] text-[#0D3C32]"
-                      >
-                        Close
-                      </button>
-                    </div>
-
-                    <form
-                      className="flex flex-wrap items-end gap-3.5 px-5 py-[18px]"
-                      onSubmit={(event) => { event.preventDefault(); handleAddEAL() }}
-                    >
-                      <div className="flex-[0_0_108px]">
-                        <label htmlFor="d-prefix" className="mb-1.5 block text-xs font-medium text-[#3C434B]">Prefix</label>
-                        <input
-                          id="d-prefix"
-                          value={newEALData.prefix}
-                          onChange={({ target }) => setNewEALData((previous) => ({ ...previous, prefix: target.value.toUpperCase() }))}
-                          maxLength={3}
-                          placeholder="ABC"
-                          className={`${fieldClass} tracking-[0.08em] uppercase`}
-                        />
-                      </div>
-                      <div className="min-w-0 flex-[1_1_170px]">
-                        <label htmlFor="d-from" className="mb-1.5 block text-xs font-medium text-[#3C434B]">Serial from</label>
-                        <input
-                          id="d-from"
-                          value={newEALData.serialFrom}
-                          onChange={({ target }) => setNewEALData((previous) => ({ ...previous, serialFrom: target.value }))}
-                          inputMode="numeric"
-                          placeholder="10 digits"
-                          className={fieldClass}
-                        />
-                      </div>
-                      <div className="min-w-0 flex-[1_1_170px]">
-                        <label htmlFor="d-to" className="mb-1.5 block text-xs font-medium text-[#3C434B]">Serial to</label>
-                        <input
-                          id="d-to"
-                          value={newEALData.serialTo}
-                          onChange={({ target }) => setNewEALData((previous) => ({ ...previous, serialTo: target.value }))}
-                          inputMode="numeric"
-                          placeholder="10 digits"
-                          className={fieldClass}
-                        />
-                      </div>
-                      <div className="flex-[0_0_150px]">
-                        <span className="mb-1.5 block text-xs font-medium text-[#3C434B]">Resolves to</span>
-                        <div className="flex h-[38px] items-center gap-[7px] rounded-lg border border-dashed border-[#C9DED6] bg-[#F3F8F6] px-[11px]">
-                          <span className="font-numeric text-[13.5px] font-semibold text-[#0D3C32] tabular-nums">
-                            {linkChecks.cases > 0 ? formatQuantity(linkChecks.cases) : '—'}
-                          </span>
-                          <span className="text-[11.5px] text-[#15594A]">cases</span>
-                        </div>
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={!linkChecks.valid || busy}
-                        className="h-[38px] cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-[15px] text-[13px] font-semibold text-white hover:bg-[#124C3F] disabled:cursor-not-allowed disabled:border-[#E3E2DE] disabled:bg-[#F2F1ED] disabled:text-[#A8ADB5]"
-                      >
-                        Add range
-                      </button>
-                    </form>
-
-                    <ul className="m-0 flex list-none flex-col gap-[7px] px-5 pb-4">
-                      {linkChecks.checks.map((check) => (
-                        <li
-                          key={check.text}
-                          className="flex items-start gap-2 text-xs"
-                          style={{ color: check.ok ? '#15594A' : '#5A636D' }}
+                {/* Delivery, in its own block rather than crammed into the meta line */}
+                <div className="rounded-xl border border-[#E3E2DE] bg-white px-[18px] py-4">
+                  <h3 className="m-0 mb-3 text-[13.5px] font-semibold tracking-[-0.01em]">Delivery</h3>
+                  <dl className="m-0 flex flex-wrap gap-x-9 gap-y-4">
+                    {[
+                      { label: 'Depot', value: selected.deliveryTo?.name },
+                      { label: 'Market', value: marketStyle(selected.market).label },
+                      { label: 'Date dispatched', value: formatDate(selected.dateDispatched), mono: true },
+                      { label: 'Vehicle', value: selected.vehicleDetails?.vehicleNumber, mono: true },
+                      { label: 'Driver', value: selected.vehicleDetails?.driverName },
+                      { label: 'Driver contact', value: selected.vehicleDetails?.driverContact, mono: true },
+                      { label: 'Raised by', value: selected.createdBy?.fullName }
+                    ].map((field) => (
+                      <div key={field.label} className="min-w-0">
+                        <dt className="text-[10.5px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase">
+                          {field.label}
+                        </dt>
+                        <dd
+                          className={`mt-[5px] mb-0 text-[13px] ${field.mono ? 'font-numeric tabular-nums' : ''} ${
+                            field.value ? 'text-[#15181C]' : 'text-[#A8ADB5]'
+                          }`}
                         >
-                          <span className="mt-px shrink-0">
-                            {check.ok ? <CheckIcon size={14} strokeWidth={2.4} /> : <LuX className="text-[#A8ADB5]" />}
-                          </span>
-                          {check.text}
-                        </li>
-                      ))}
-                    </ul>
-
-                    <div className="border-t border-[#EDECE8]">
-                      <table className="w-full border-collapse">
-                        <thead>
-                          <tr>
-                            <th className={headerCell}>Range linked</th>
-                            <th className={`${headerCell} text-right`}>Labels</th>
-                            <th className={`${headerCell} text-right`}>Cases</th>
-                            <th className={headerCell} />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(linkItem.EALLinks || []).length === 0 ? (
-                            <tr>
-                              <td colSpan={4} className={`${bodyCell} text-center text-[#5A636D]`}>
-                                No ranges linked to this item yet.
-                              </td>
-                            </tr>
-                          ) : (
-                            linkItem.EALLinks.map((link, index) => {
-                              const labels = link.serialTo - link.serialFrom + 1
-                              const perCase = linkItem.item?.bottlesPerCase || 0
-                              return (
-                                <tr key={`${link.prefix}-${link.serialFrom}-${index}`}>
-                                  <td className={bodyCell}>
-                                    <SerialRange
-                                      prefix={link.prefix}
-                                      serialFrom={link.serialFrom}
-                                      serialTo={link.serialTo}
-                                    />
-                                  </td>
-                                  <td className={`${bodyCell} font-numeric text-right tabular-nums`}>
-                                    {formatQuantity(labels)}
-                                  </td>
-                                  <td className={`${bodyCell} font-numeric text-right font-medium tabular-nums`}>
-                                    {perCase > 0 ? formatQuantity(labels / perCase) : '—'}
-                                  </td>
-                                  <td className={`${bodyCell} text-right`}>
-                                    {selected.status === 'final' && mayLink && (
-                                      <button
-                                        type="button"
-                                        onClick={() => setUnlinkCandidate({ link, itemId: linkItem.item._id })}
-                                        className="h-7 cursor-pointer rounded-md border border-[#E3BDBB] bg-white px-2.5 text-xs text-[#9B2C2C] hover:bg-[#FCEBEA]"
-                                      >
-                                        Unlink
-                                      </button>
-                                    )}
-                                  </td>
-                                </tr>
-                              )
-                            })
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </>
+                          {field.value || 'Not yet recorded'}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              </div>
             )}
           </section>
         </div>
