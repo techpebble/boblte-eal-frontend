@@ -2,6 +2,7 @@ import React, { useContext, useEffect, useRef, useState } from 'react'
 import { LuChevronsUpDown, LuLogOut } from 'react-icons/lu'
 import { useNavigate } from 'react-router-dom'
 import { SIDE_MENU_GROUPS } from '../../utils/data'
+import { visibleGroups } from '../../utils/permissions'
 import { UserContext } from '../../context/userContext'
 import BrandMark from './BrandMark'
 
@@ -69,7 +70,7 @@ const SideMenu = ({ activeMenu, onNavigate }) => {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {SIDE_MENU_GROUPS.map((group) => (
+        {visibleGroups(SIDE_MENU_GROUPS, user).map((group) => (
           <div key={group.id} className="flex flex-col gap-px">
             <div className="px-2.5 pt-2 pb-1.5 text-[10px] font-semibold tracking-[0.1em] text-[#8A919B] uppercase">
               {group.name}
