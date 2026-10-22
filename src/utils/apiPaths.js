@@ -49,6 +49,18 @@ export const API_PATHS = {
         ADD_DATA: 'api/v1/packs',
         UPDATE_DATA: 'api/v1/packs',
     },
+    ROLE: {
+        GET_DATA: 'api/v1/roles',
+        GET_PERMISSIONS: 'api/v1/roles/permissions',
+        ADD_DATA: 'api/v1/roles',
+        UPDATE_DATA: 'api/v1/roles',
+        DELETE_DATA: 'api/v1/roles',
+    },
+    USER: {
+        GET_DATA: 'api/v1/users',
+        ADD_DATA: 'api/v1/auth/register',
+        UPDATE_DATA: 'api/v1/users',
+    },
     ITEM: {
         GET_DATA: 'api/v1/items',
         ADD_DATA: 'api/v1/items',

@@ -23,6 +23,7 @@ import Items from "./pages/Dashboard/Items";
 import Packs from "./pages/Dashboard/Packs";
 import DeliveryDepots from "./pages/Dashboard/DeliveryDepots";
 import Companies from "./pages/Dashboard/Companies";
+import Roles from "./pages/Dashboard/Roles";
 
 const App = () => {
   return (
@@ -47,6 +48,7 @@ const App = () => {
             <Route path="/packs" exact element={<ProtectedRoute><Packs /></ProtectedRoute>} />
             <Route path="/delivery-depots" exact element={<ProtectedRoute><DeliveryDepots /></ProtectedRoute>} />
             <Route path="/companies" exact element={<ProtectedRoute><Companies /></ProtectedRoute>} />
+            <Route path="/roles" exact element={<ProtectedRoute><Roles /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
           </ErrorBoundary>
