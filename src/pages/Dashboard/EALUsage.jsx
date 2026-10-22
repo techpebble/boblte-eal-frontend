@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { LuDownload, LuPlus, LuTrash2, LuX } from 'react-icons/lu'
 import DashboardLayout from '../../components/layouts/DashboardLayout'
@@ -15,6 +15,8 @@ import axiosInstance from '../../utils/axiosInstance'
 import { API_PATHS } from '../../utils/apiPaths'
 import { downloadCsv } from '../../utils/exportCsv'
 import { formatDate, formatDateToYYYYMMDD } from '../../utils/helper'
+import { UserContext } from '../../context/userContext'
+import { can } from '../../utils/permissions'
 
 const PAGE_SIZES = [25, 50, 100]
 const COLUMN_COUNT = 8
@@ -42,6 +44,10 @@ const monthToDate = () => {
 }
 
 const EALUsage = () => {
+  const { user } = useContext(UserContext)
+  const mayCreate = can(user, 'usage:create')
+  const mayDelete = can(user, 'usage:delete')
+
   const [openAddEALUsageModal, setOpenAddEALUsageModal] = useState(false)
   const [EALUsageData, setEALUsageData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -341,14 +347,16 @@ const EALUsage = () => {
               <LuDownload />
               Export
             </button>
-            <button
-              type="button"
-              onClick={() => setOpenAddEALUsageModal(true)}
-              className="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-medium text-white hover:bg-[#124C3F]"
-            >
-              <LuPlus />
-              Record usage
-            </button>
+            {mayCreate && (
+              <button
+                type="button"
+                onClick={() => setOpenAddEALUsageModal(true)}
+                className="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-medium text-white hover:bg-[#124C3F]"
+              >
+                <LuPlus />
+                Record usage
+              </button>
+            )}
           </div>
         </div>
 
@@ -490,13 +498,15 @@ const EALUsage = () => {
                     : 'Widen the date range, or record the labels applied on the line.'
                 }
                 action={
-                  <button
-                    type="button"
-                    onClick={() => (filtersActive ? clearFilters() : setOpenAddEALUsageModal(true))}
-                    className="h-[34px] cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[12.5px] font-medium text-white"
-                  >
-                    {filtersActive ? 'Clear filters' : 'Record usage'}
-                  </button>
+                  (filtersActive || mayCreate) && (
+                    <button
+                      type="button"
+                      onClick={() => (filtersActive ? clearFilters() : setOpenAddEALUsageModal(true))}
+                      className="h-[34px] cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[12.5px] font-medium text-white"
+                    >
+                      {filtersActive ? 'Clear filters' : 'Record usage'}
+                    </button>
+                  )
                 }
               />
             </div>
@@ -524,12 +534,12 @@ const EALUsage = () => {
                     <th className={`${headerCell} w-[90px] text-right`}>Cases</th>
                     <th className={`${headerCell} w-[108px] text-right`}>Awaiting</th>
                     <th className={`${headerCell} w-[120px]`}>Status</th>
-                    <th className={`${headerCell} w-[52px] text-right`}>Remove</th>
+                    {mayDelete && <th className={`${headerCell} w-[52px] text-right`}>Remove</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
-                    <SkeletonTableRows rows={6} columns={COLUMN_COUNT} />
+                    <SkeletonTableRows rows={6} columns={mayDelete ? COLUMN_COUNT : COLUMN_COUNT - 1} />
                   ) : (
                     pageRows.map((entry) => {
                       const chosen = selected.has(entry._id)
@@ -597,25 +607,27 @@ const EALUsage = () => {
                           <td className={bodyCell}>
                             <StatusPill status={entry.status} />
                           </td>
-                          <td className={`${bodyCell} text-right`}>
-                            {/* Only a run with nothing dispatched can go, and
-                                removing it hands the labels back to its
-                                issuance. The API checks this too. */}
-                            <button
-                              type="button"
-                              disabled={entry.status !== 'in-stock'}
-                              onClick={() => { setRemoveCandidate(entry); setConfirmRange({ serialFrom: '', serialTo: '' }) }}
-                              aria-label={`Remove usage ${entry.prefix}${entry.serialFrom}`}
-                              title={
-                                entry.status === 'in-stock'
-                                  ? 'Remove this production run and return its labels to stock'
-                                  : 'Some of these cases have been dispatched, so this cannot be removed'
-                              }
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#5A636D] enabled:cursor-pointer enabled:hover:bg-[#FCEBEA] enabled:hover:text-[#9B2C2C] disabled:cursor-not-allowed disabled:text-[#D7D6D1]"
-                            >
-                              <LuTrash2 />
-                            </button>
-                          </td>
+                          {mayDelete && (
+                            <td className={`${bodyCell} text-right`}>
+                              {/* Only a run with nothing dispatched can go, and
+                                  removing it hands the labels back to its
+                                  issuance. The API checks this too. */}
+                              <button
+                                type="button"
+                                disabled={entry.status !== 'in-stock'}
+                                onClick={() => { setRemoveCandidate(entry); setConfirmRange({ serialFrom: '', serialTo: '' }) }}
+                                aria-label={`Remove usage ${entry.prefix}${entry.serialFrom}`}
+                                title={
+                                  entry.status === 'in-stock'
+                                    ? 'Remove this production run and return its labels to stock'
+                                    : 'Some of these cases have been dispatched, so this cannot be removed'
+                                }
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#5A636D] enabled:cursor-pointer enabled:hover:bg-[#FCEBEA] enabled:hover:text-[#9B2C2C] disabled:cursor-not-allowed disabled:text-[#D7D6D1]"
+                              >
+                                <LuTrash2 />
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       )
                     })
@@ -636,7 +648,7 @@ const EALUsage = () => {
                       <td className={`${footCell} font-numeric text-right tabular-nums`}>
                         {formatQuantity(totals.waiting)}
                       </td>
-                      <td className={footCell} colSpan={2} />
+                      <td className={footCell} colSpan={mayDelete ? 2 : 1} />
                     </tr>
                   </tfoot>
                 )}

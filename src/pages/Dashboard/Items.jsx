@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useContext, useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
 import { LuDownload, LuPencil, LuPlus, LuSearch } from 'react-icons/lu'
 import DashboardLayout from '../../components/layouts/DashboardLayout'
@@ -12,6 +12,8 @@ import axiosInstance from '../../utils/axiosInstance'
 import { API_PATHS } from '../../utils/apiPaths'
 import { downloadCsv } from '../../utils/exportCsv'
 import { formatDateToYYYYMMDD } from '../../utils/helper'
+import { UserContext } from '../../context/userContext'
+import { can } from '../../utils/permissions'
 
 const PAGE_SIZES = [25, 50, 100]
 const COLUMN_COUNT = 7
@@ -23,6 +25,10 @@ const bodyCell = 'border-t border-[#EDECE8] px-4 py-3 text-[13px] text-[#2A2F36]
 const isActive = (item) => item.isActive !== false
 
 const Items = () => {
+  const { user } = useContext(UserContext)
+  // Adding, editing and switching an item on or off are one permission.
+  const mayManage = can(user, 'masterdata:manage')
+
   const [openAddModal, setOpenAddModal] = useState(false)
   const [openEditModal, setOpenEditModal] = useState(false)
   const [selectedItem, setSelectedItem] = useState(null)
@@ -215,14 +221,16 @@ const Items = () => {
               <LuDownload />
               Export
             </button>
-            <button
-              type="button"
-              onClick={() => setOpenAddModal(true)}
-              className="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-medium text-white hover:bg-[#124C3F]"
-            >
-              <LuPlus />
-              Add item
-            </button>
+            {mayManage && (
+              <button
+                type="button"
+                onClick={() => setOpenAddModal(true)}
+                className="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-medium text-white hover:bg-[#124C3F]"
+              >
+                <LuPlus />
+                Add item
+              </button>
+            )}
           </div>
         </div>
 
@@ -326,13 +334,15 @@ const Items = () => {
                     : 'Add the products your labels are applied to.'
                 }
                 action={
-                  <button
-                    type="button"
-                    onClick={() => (filtersActive ? clearFilters() : setOpenAddModal(true))}
-                    className="h-[34px] cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[12.5px] font-medium text-white"
-                  >
-                    {filtersActive ? 'Clear filters' : 'Add item'}
-                  </button>
+                  (filtersActive || mayManage) && (
+                    <button
+                      type="button"
+                      onClick={() => (filtersActive ? clearFilters() : setOpenAddModal(true))}
+                      className="h-[34px] cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[12.5px] font-medium text-white"
+                    >
+                      {filtersActive ? 'Clear filters' : 'Add item'}
+                    </button>
+                  )
                 }
               />
             </div>
@@ -350,12 +360,12 @@ const Items = () => {
                     <th className={`${headerCell} w-[150px]`}>Pack</th>
                     <th className={`${headerCell} w-[96px]`}>Market</th>
                     <th className={`${headerCell} w-[136px]`}>Status</th>
-                    <th className={`${headerCell} w-[52px] text-right`}>Edit</th>
+                    {mayManage && <th className={`${headerCell} w-[52px] text-right`}>Edit</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
-                    <SkeletonTableRows rows={6} columns={COLUMN_COUNT} />
+                    <SkeletonTableRows rows={6} columns={mayManage ? COLUMN_COUNT : COLUMN_COUNT - 1} />
                   ) : (
                     pageRows.map((item) => {
                       const live = isActive(item)
@@ -391,6 +401,21 @@ const Items = () => {
                             </span>
                           </td>
                           <td className={bodyCell}>
+                            {/* Without the permission this is a fact to read,
+                                not a switch to flick, so it loses the switch
+                                rather than sitting there greyed out. */}
+                            {!mayManage ? (
+                              <span
+                                className="inline-block rounded-[5px] px-2 py-[3px] text-[11px] font-semibold"
+                                style={
+                                  live
+                                    ? { color: '#15594A', backgroundColor: '#E7F0EC' }
+                                    : { color: '#5A636D', backgroundColor: '#F0EFEC' }
+                                }
+                              >
+                                {live ? 'Active' : 'Inactive'}
+                              </span>
+                            ) : (
                             <button
                               type="button"
                               role="switch"
@@ -420,17 +445,20 @@ const Items = () => {
                                 {live ? 'Active' : 'Inactive'}
                               </span>
                             </button>
+                            )}
                           </td>
-                          <td className={`${bodyCell} text-right`}>
-                            <button
-                              type="button"
-                              onClick={() => openEdit(item)}
-                              aria-label={`Edit ${itemLabel(item)}`}
-                              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-[#5A636D] hover:bg-[#F2F1ED] hover:text-[#15181C]"
-                            >
-                              <LuPencil />
-                            </button>
-                          </td>
+                          {mayManage && (
+                            <td className={`${bodyCell} text-right`}>
+                              <button
+                                type="button"
+                                onClick={() => openEdit(item)}
+                                aria-label={`Edit ${itemLabel(item)}`}
+                                className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-[#5A636D] hover:bg-[#F2F1ED] hover:text-[#15181C]"
+                              >
+                                <LuPencil />
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       )
                     })

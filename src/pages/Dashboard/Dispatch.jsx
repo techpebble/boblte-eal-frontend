@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useContext, useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
 import { LuDownload, LuLink, LuPlus, LuTriangleAlert, LuX } from 'react-icons/lu'
 import DashboardLayout from '../../components/layouts/DashboardLayout'
@@ -20,6 +20,8 @@ import axiosInstance from '../../utils/axiosInstance'
 import { API_PATHS } from '../../utils/apiPaths'
 import { downloadCsv } from '../../utils/exportCsv'
 import { formatDate, formatDateToYYYYMMDD } from '../../utils/helper'
+import { UserContext } from '../../context/userContext'
+import { can } from '../../utils/permissions'
 
 const STATUS_TABS = [
   { key: 'open', label: 'Open', matches: ['draft', 'final'] },
@@ -56,6 +58,15 @@ const Dispatch = () => {
   const [companies, setCompanies] = useState([])
 
   const [selectedId, setSelectedId] = useState(null)
+  const { user } = useContext(UserContext)
+  // A note is raised, changed, moved along and linked by four separate
+  // permissions, so each control answers to its own.
+  const mayCreate = can(user, 'dispatch:create')
+  const mayEdit = can(user, 'dispatch:edit')
+  const mayDelete = can(user, 'dispatch:delete')
+  const mayStatus = can(user, 'dispatch:status')
+  const mayLink = can(user, 'dispatch:link')
+
   const [linkItemId, setLinkItemId] = useState(null)
   const [newEALData, setNewEALData] = useState({ prefix: '', serialFrom: '', serialTo: '' })
 
@@ -350,22 +361,22 @@ const Dispatch = () => {
     switch (selected.status) {
       case 'draft':
         return [
-          button('Edit note', () => { setFormDispatch(selected); setFormOpen(true) }, 'secondary'),
-          button('Delete', () => deleteDispatch(id), 'danger'),
-          button('Finalise', () => updateDispatchStatus(id, 'final'))
-        ]
+          mayEdit && button('Edit note', () => { setFormDispatch(selected); setFormOpen(true) }, 'secondary'),
+          mayDelete && button('Delete', () => deleteDispatch(id), 'danger'),
+          mayStatus && button('Finalise', () => updateDispatchStatus(id, 'final'))
+        ].filter(Boolean)
       case 'final':
         return [
-          linkedCases(selected) === 0 &&
+          mayStatus && linkedCases(selected) === 0 &&
             button('Back to draft', () => updateDispatchStatus(id, 'draft'), 'secondary'),
           full
-            ? button('Mark loaded', () => setVehicleOpen(true))
+            ? mayStatus && button('Mark loaded', () => setVehicleOpen(true))
             : <span key="pending" className="self-center text-[12.5px] text-[#8A5A00]">Pending EAL linking</span>
         ].filter(Boolean)
       case 'loaded':
-        return [button('Mark dispatched', () => updateDispatchStatus(id, 'dispatched'))]
+        return [mayStatus && button('Mark dispatched', () => updateDispatchStatus(id, 'dispatched'))].filter(Boolean)
       case 'dispatched':
-        return [button('Mark delivered', () => updateDispatchStatus(id, 'delivered'))]
+        return [mayStatus && button('Mark delivered', () => updateDispatchStatus(id, 'delivered'))].filter(Boolean)
       default:
         return null
     }
@@ -393,14 +404,16 @@ const Dispatch = () => {
               <LuDownload />
               Export
             </button>
-            <button
-              type="button"
-              onClick={() => { setFormDispatch(null); setFormOpen(true) }}
-              className="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-medium text-white hover:bg-[#124C3F]"
-            >
-              <LuPlus />
-              New dispatch note
-            </button>
+            {mayCreate && (
+              <button
+                type="button"
+                onClick={() => { setFormDispatch(null); setFormOpen(true) }}
+                className="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-medium text-white hover:bg-[#124C3F]"
+              >
+                <LuPlus />
+                New dispatch note
+              </button>
+            )}
           </div>
         </div>
 
@@ -642,7 +655,7 @@ const Dispatch = () => {
                                 {formatQuantity(remaining)}
                               </td>
                               <td className={`${bodyCell} text-right`}>
-                                {selected.status === 'final' && (
+                                {selected.status === 'final' && mayLink && (
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -801,7 +814,7 @@ const Dispatch = () => {
                                     {perCase > 0 ? formatQuantity(labels / perCase) : '—'}
                                   </td>
                                   <td className={`${bodyCell} text-right`}>
-                                    {selected.status === 'final' && (
+                                    {selected.status === 'final' && mayLink && (
                                       <button
                                         type="button"
                                         onClick={() => setUnlinkCandidate({ link, itemId: linkItem.item._id })}

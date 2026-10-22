@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useContext, useEffect, useMemo, useState } from 'react'
 import { LuDownload, LuPencil, LuPlus, LuSearch } from 'react-icons/lu'
 import DashboardLayout from '../layouts/DashboardLayout'
 import Modal from '../Modal/Modal'
@@ -7,6 +7,8 @@ import { SkeletonTableRows } from '../Dashboard/Skeleton'
 import RecordForm from './RecordForm'
 import { downloadCsv } from '../../utils/exportCsv'
 import { formatDateToYYYYMMDD } from '../../utils/helper'
+import { UserContext } from '../../context/userContext'
+import { can } from '../../utils/permissions'
 
 const PAGE_SIZES = [25, 50, 100]
 
@@ -41,6 +43,11 @@ const MasterDataPage = ({
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
+  const { user } = useContext(UserContext)
+  // Packs, depots and companies all sit behind the one master-data
+  // permission, so the shell can decide this once for all three.
+  const mayManage = can(user, 'masterdata:manage')
+
   const [addOpen, setAddOpen] = useState(false)
   const [editRecord, setEditRecord] = useState(null)
 
@@ -92,14 +99,16 @@ const MasterDataPage = ({
               <LuDownload />
               Export
             </button>
-            <button
-              type="button"
-              onClick={() => setAddOpen(true)}
-              className="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-medium text-white hover:bg-[#124C3F]"
-            >
-              <LuPlus />
-              Add {singular}
-            </button>
+            {mayManage && (
+              <button
+                type="button"
+                onClick={() => setAddOpen(true)}
+                className="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-medium text-white hover:bg-[#124C3F]"
+              >
+                <LuPlus />
+                Add {singular}
+              </button>
+            )}
           </div>
         </div>
 
@@ -138,13 +147,15 @@ const MasterDataPage = ({
                     : `Add the first ${singular.toLowerCase()} to get started.`
                 }
                 action={
-                  <button
-                    type="button"
-                    onClick={() => (search ? setSearch('') : setAddOpen(true))}
-                    className="h-[34px] cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[12.5px] font-medium text-white"
-                  >
-                    {search ? 'Clear search' : `Add ${singular.toLowerCase()}`}
-                  </button>
+                  (search || mayManage) && (
+                    <button
+                      type="button"
+                      onClick={() => (search ? setSearch('') : setAddOpen(true))}
+                      className="h-[34px] cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[12.5px] font-medium text-white"
+                    >
+                      {search ? 'Clear search' : `Add ${singular.toLowerCase()}`}
+                    </button>
+                  )
                 }
               />
             </div>
@@ -161,12 +172,12 @@ const MasterDataPage = ({
                         {column.header}
                       </th>
                     ))}
-                    <th className={`${headerCell} w-16 text-right`}>Edit</th>
+                    {mayManage && <th className={`${headerCell} w-16 text-right`}>Edit</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
-                    <SkeletonTableRows rows={6} columns={columns.length + 1} />
+                    <SkeletonTableRows rows={6} columns={columns.length + (mayManage ? 1 : 0)} />
                   ) : (
                     pageRows.map((row) => (
                       <tr key={row._id} className="hover:bg-[#FAFAF8]">
@@ -180,16 +191,18 @@ const MasterDataPage = ({
                             {column.render ? column.render(row) : (row[column.key] ?? '—')}
                           </td>
                         ))}
-                        <td className={`${bodyCell} text-right`}>
-                          <button
-                            type="button"
-                            onClick={() => setEditRecord(row)}
-                            aria-label={`Edit ${row.name || singular}`}
-                            className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-[#5A636D] hover:bg-[#F2F1ED] hover:text-[#15181C]"
-                          >
-                            <LuPencil />
-                          </button>
-                        </td>
+                        {mayManage && (
+                          <td className={`${bodyCell} text-right`}>
+                            <button
+                              type="button"
+                              onClick={() => setEditRecord(row)}
+                              aria-label={`Edit ${row.name || singular}`}
+                              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-[#5A636D] hover:bg-[#F2F1ED] hover:text-[#15181C]"
+                            >
+                              <LuPencil />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))
                   )}

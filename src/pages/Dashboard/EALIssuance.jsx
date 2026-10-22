@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { LuDownload, LuPlus, LuTrash2, LuX } from 'react-icons/lu'
 import DashboardLayout from '../../components/layouts/DashboardLayout'
@@ -15,6 +15,8 @@ import axiosInstance from '../../utils/axiosInstance'
 import { API_PATHS } from '../../utils/apiPaths'
 import { downloadCsv } from '../../utils/exportCsv'
 import { formatDate, formatDateToYYYYMMDD } from '../../utils/helper'
+import { UserContext } from '../../context/userContext'
+import { can } from '../../utils/permissions'
 
 const PAGE_SIZES = [25, 50, 100]
 const COLUMN_COUNT = 8
@@ -37,6 +39,10 @@ const monthToDate = () => {
 }
 
 const EALIssuance = () => {
+  const { user } = useContext(UserContext)
+  const mayCreate = can(user, 'issuance:create')
+  const mayDelete = can(user, 'issuance:delete')
+
   const [openAddEALIssuanceModal, setOpenAddEALIssuanceModal] = useState(false)
   const [EALIssuanceData, setEALIssuanceData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -326,14 +332,16 @@ const EALIssuance = () => {
               <LuDownload />
               Export
             </button>
-            <button
-              type="button"
-              onClick={() => setOpenAddEALIssuanceModal(true)}
-              className="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-medium text-white hover:bg-[#124C3F]"
-            >
-              <LuPlus />
-              Record issuance
-            </button>
+            {mayCreate && (
+              <button
+                type="button"
+                onClick={() => setOpenAddEALIssuanceModal(true)}
+                className="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[13px] font-medium text-white hover:bg-[#124C3F]"
+              >
+                <LuPlus />
+                Record issuance
+              </button>
+            )}
           </div>
         </div>
 
@@ -475,13 +483,15 @@ const EALIssuance = () => {
                     : 'Widen the date range, or record the issuance you have just received from the excise department.'
                 }
                 action={
-                  <button
-                    type="button"
-                    onClick={() => (filtersActive ? clearFilters() : setOpenAddEALIssuanceModal(true))}
-                    className="h-[34px] cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[12.5px] font-medium text-white"
-                  >
-                    {filtersActive ? 'Clear filters' : 'Record issuance'}
-                  </button>
+                  (filtersActive || mayCreate) && (
+                    <button
+                      type="button"
+                      onClick={() => (filtersActive ? clearFilters() : setOpenAddEALIssuanceModal(true))}
+                      className="h-[34px] cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[12.5px] font-medium text-white"
+                    >
+                      {filtersActive ? 'Clear filters' : 'Record issuance'}
+                    </button>
+                  )
                 }
               />
             </div>
@@ -509,12 +519,12 @@ const EALIssuance = () => {
                     <th className={`${headerCell} w-[110px] text-right`}>Issued</th>
                     <th className={`${headerCell} w-[110px] text-right`}>Balance</th>
                     <th className={`${headerCell} w-[128px]`}>Status</th>
-                    <th className={`${headerCell} w-[52px] text-right`}>Remove</th>
+                    {mayDelete && <th className={`${headerCell} w-[52px] text-right`}>Remove</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
-                    <SkeletonTableRows rows={6} columns={COLUMN_COUNT} />
+                    <SkeletonTableRows rows={6} columns={mayDelete ? COLUMN_COUNT : COLUMN_COUNT - 1} />
                   ) : (
                     pageRows.map((entry) => {
                       const chosen = selected.has(entry._id)
@@ -573,24 +583,26 @@ const EALIssuance = () => {
                           <td className={bodyCell}>
                             <StatusPill status={entry.status} />
                           </td>
-                          <td className={`${bodyCell} text-right`}>
-                            {/* Only an untouched range can go. The API checks
-                                this too; the button explains why when it cannot. */}
-                            <button
-                              type="button"
-                              disabled={entry.used > 0}
-                              onClick={() => { setRemoveCandidate(entry); setConfirmRange({ serialFrom: '', serialTo: '' }) }}
-                              aria-label={`Remove issuance ${entry.prefix}${entry.serialFrom}`}
-                              title={
-                                entry.used > 0
-                                  ? `${formatQuantity(entry.used)} labels have been applied, so this cannot be removed`
-                                  : 'Remove this issuance'
-                              }
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#5A636D] enabled:cursor-pointer enabled:hover:bg-[#FCEBEA] enabled:hover:text-[#9B2C2C] disabled:cursor-not-allowed disabled:text-[#D7D6D1]"
-                            >
-                              <LuTrash2 />
-                            </button>
-                          </td>
+                          {mayDelete && (
+                            <td className={`${bodyCell} text-right`}>
+                              {/* Only an untouched range can go. The API checks
+                                  this too; the button explains why when it cannot. */}
+                              <button
+                                type="button"
+                                disabled={entry.used > 0}
+                                onClick={() => { setRemoveCandidate(entry); setConfirmRange({ serialFrom: '', serialTo: '' }) }}
+                                aria-label={`Remove issuance ${entry.prefix}${entry.serialFrom}`}
+                                title={
+                                  entry.used > 0
+                                    ? `${formatQuantity(entry.used)} labels have been applied, so this cannot be removed`
+                                    : 'Remove this issuance'
+                                }
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#5A636D] enabled:cursor-pointer enabled:hover:bg-[#FCEBEA] enabled:hover:text-[#9B2C2C] disabled:cursor-not-allowed disabled:text-[#D7D6D1]"
+                              >
+                                <LuTrash2 />
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       )
                     })
@@ -611,7 +623,7 @@ const EALIssuance = () => {
                       <td className={`${footCell} font-numeric text-right tabular-nums`}>
                         {formatQuantity(totals.balance)}
                       </td>
-                      <td className={footCell} colSpan={2} />
+                      <td className={footCell} colSpan={mayDelete ? 2 : 1} />
                     </tr>
                   </tfoot>
                 )}
