@@ -15,6 +15,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { Toaster } from "react-hot-toast";
 import Dispatch from "./pages/Dashboard/Dispatch";
+import DispatchNote from "./pages/Dashboard/DispatchNote";
 import Logout from "./pages/Auth/Logout";
 import FinishedStock from "./pages/Dashboard/FinishedStock";
 import FindEAL from "./pages/Dashboard/FindEAL";
@@ -42,6 +43,7 @@ const App = () => {
             <Route path="/eal-usage" exact element={<ProtectedRoute permission="usage:view"><EALUsage /></ProtectedRoute>} />
             <Route path="/finished-stock" exact element={<ProtectedRoute permission="finished:view"><FinishedStock /></ProtectedRoute>} />
             <Route path="/dispatch" exact element={<ProtectedRoute permission="dispatch:view"><Dispatch /></ProtectedRoute>} />
+            <Route path="/dispatch/:dispatchId" exact element={<ProtectedRoute permission="dispatch:view"><DispatchNote /></ProtectedRoute>} />
             <Route path="/eal-stock" exact element={<ProtectedRoute permission="stock:view"><EALStock /></ProtectedRoute>} />
             <Route path="/find-eal" exact element={<ProtectedRoute permission="eal:trace"><FindEAL /></ProtectedRoute>} />
             <Route path="/items" exact element={<ProtectedRoute permission="masterdata:view"><Items /></ProtectedRoute>} />
