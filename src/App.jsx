@@ -12,6 +12,7 @@ import EALUsage from "./pages/Dashboard/EALUsage";
 import Users from "./pages/Dashboard/Users";
 import UserProvider from "./context/userContext";
 import ProtectedRoute from "./components/ProtectedRoute";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { Toaster } from "react-hot-toast";
 import Dispatch from "./pages/Dashboard/Dispatch";
 import Logout from "./pages/Auth/Logout";
@@ -28,6 +29,7 @@ const App = () => {
     <UserProvider>
       <div>
         <Router>
+          <ErrorBoundary>
           <Routes>
             <Route path="/" element={<Root />} />
             <Route path="/login" exact element={<Login />} />
@@ -47,6 +49,7 @@ const App = () => {
             <Route path="/companies" exact element={<ProtectedRoute><Companies /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
+          </ErrorBoundary>
         </Router>
       </div>
       <Toaster
