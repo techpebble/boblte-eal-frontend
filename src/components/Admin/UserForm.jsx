@@ -32,6 +32,13 @@ const UserForm = ({ record, roles = [], companies = [], onSubmit, loading }) => 
   const companyOptions = companies.map((company) => ({ value: company._id, label: company.name }))
   const chosenRole = roles.find((role) => role._id === values.role)
 
+  // A person belongs to one company. Working across both is decided by the
+  // role, not here: a role holding companies:all sees every company, and the
+  // company below is then only where this person's new records are filed.
+  const seesEveryCompany = Boolean(
+    chosenRole?.isSystem || chosenRole?.permissions?.includes('companies:all')
+  )
+
   const ready = Boolean(
     values.fullName.trim() &&
     values.email.trim() &&
@@ -113,6 +120,11 @@ const UserForm = ({ record, roles = [], companies = [], onSubmit, loading }) => 
             value={values.company}
             onChange={({ target }) => change('company', target.value)}
             options={companyOptions}
+            hint={
+              seesEveryCompany
+                ? 'This role sees every company. This one is where their own records are filed.'
+                : 'The only company they will see. To let someone work across both, give them a role that holds companies:all.'
+            }
           />
         </div>
       </FormSection>
