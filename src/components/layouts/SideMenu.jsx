@@ -1,9 +1,19 @@
-import React, { useContext } from 'react'
-import { LuLogOut } from 'react-icons/lu'
+import React, { useContext, useEffect, useRef, useState } from 'react'
+import { LuChevronsUpDown, LuLogOut } from 'react-icons/lu'
 import { useNavigate } from 'react-router-dom'
 import { SIDE_MENU_GROUPS } from '../../utils/data'
 import { UserContext } from '../../context/userContext'
 import BrandMark from './BrandMark'
+
+/**
+ * A role used to be a string on the user and is now a record, so this takes
+ * either. Rendering the object itself is what React refuses, and it takes the
+ * whole page down with it rather than just this line.
+ */
+const roleName = (role) => {
+  if (!role) return ''
+  return typeof role === 'string' ? role : role.name || ''
+}
 
 /** "Ravi Nanayakkara" -> "RN", so the avatar works without an uploaded photo. */
 const initialsOf = (name) => {
@@ -15,6 +25,27 @@ const initialsOf = (name) => {
 const SideMenu = ({ activeMenu, onNavigate }) => {
   const { user, clearUser } = useContext(UserContext)
   const navigate = useNavigate()
+  const [accountOpen, setAccountOpen] = useState(false)
+  const accountRef = useRef(null)
+
+  // The account menu should go away on a click anywhere else, or on Escape.
+  useEffect(() => {
+    if (!accountOpen) return undefined
+
+    const onPointer = (event) => {
+      if (!accountRef.current?.contains(event.target)) setAccountOpen(false)
+    }
+    const onKey = (event) => {
+      if (event.key === 'Escape') setAccountOpen(false)
+    }
+
+    document.addEventListener('mousedown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [accountOpen])
 
   const go = (path) => {
     navigate(path)
@@ -66,26 +97,48 @@ const SideMenu = ({ activeMenu, onNavigate }) => {
         ))}
       </div>
 
-      <div className="border-t border-[#EDECE8] pt-2.5">
-        <div className="flex items-center gap-2.5 px-2 py-1.5">
+      <div ref={accountRef} className="relative border-t border-[#EDECE8] pt-2.5">
+        {/* One row for the account, with the chevron standing for the menu it
+            opens. Signing out lives in there rather than sitting in the
+            sidebar beside the pages. */}
+        <button
+          type="button"
+          onClick={() => setAccountOpen((open) => !open)}
+          aria-haspopup="menu"
+          aria-expanded={accountOpen}
+          className={`flex w-full cursor-pointer items-center gap-2.5 rounded-lg p-2 text-left ${
+            accountOpen ? 'bg-[#F2F1ED]' : 'hover:bg-[#F2F1ED]'
+          }`}
+        >
           <span className="font-numeric flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-[#E7F0EC] text-[11px] font-semibold text-[#15594A]">
             {initialsOf(user?.fullName)}
           </span>
-          <span className="flex min-w-0 flex-1 flex-col leading-tight">
+          <span className="flex min-w-0 flex-1 flex-col leading-[1.3]">
             <span className="truncate text-[12.5px] font-medium">{user?.fullName || '—'}</span>
-            <span className="truncate text-[10.5px] text-[#5A636D] capitalize">
-              {user?.role || ''}
-            </span>
+            <span className="truncate text-[10.5px] text-[#5A636D]">{roleName(user?.role)}</span>
           </span>
-        </div>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="mt-1 flex h-[34px] w-full cursor-pointer items-center gap-2.5 rounded-[7px] px-2.5 text-left text-[13px] text-[#3C434B] hover:bg-[#FCEBEA] hover:text-[#9B2C2C]"
-        >
-          <LuLogOut className="shrink-0 text-base opacity-75" />
-          Sign out
+          <LuChevronsUpDown className="shrink-0 text-sm text-[#8A919B]" />
         </button>
+
+        {accountOpen && (
+          <div
+            role="menu"
+            className="absolute right-0 bottom-[calc(100%+6px)] left-0 overflow-hidden rounded-[10px] border border-[#E3E2DE] bg-white py-1 shadow-[0_8px_24px_rgba(21,24,28,0.10)]"
+          >
+            <div className="border-b border-[#F3F2EF] px-3 py-2">
+              <p className="m-0 truncate text-[11.5px] text-[#5A636D]">{user?.email || ''}</p>
+            </div>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={handleLogout}
+              className="flex w-full cursor-pointer items-center gap-2.5 px-3 py-2 text-left text-[13px] text-[#3C434B] hover:bg-[#FCEBEA] hover:text-[#9B2C2C]"
+            >
+              <LuLogOut className="shrink-0 text-base opacity-75" />
+              Sign out
+            </button>
+          </div>
+        )}
       </div>
     </nav>
   )
