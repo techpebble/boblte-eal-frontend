@@ -54,7 +54,7 @@ const fieldClass =
   'h-[38px] w-full rounded-lg border border-[#D7D6D1] bg-white px-[11px] font-numeric text-[13.5px] tabular-nums text-[#15181C] outline-none focus:border-[#15594A] focus:ring-[3px] focus:ring-[#E7F0EC]'
 
 const railControl =
-  'flex h-8 items-center gap-2 rounded-lg border border-[#E3E2DE] bg-white px-2.5 text-left text-[11.5px] text-[#15181C]'
+  'flex h-[30px] items-center gap-1 rounded-lg border border-[#E3E2DE] bg-white px-2 text-left text-[11px] text-[#15181C]'
 
 /** The ten digits have to be there before any judgement about them means anything. */
 const tenDigits = (value) => /^\d{10}$/.test(String(value ?? '').trim())
@@ -433,7 +433,7 @@ const Dispatch = () => {
     const total = totalCases(selected)
     const pct = total > 0 ? Math.min(100, (done / total) * 100) : 0
     const full = isFullyLinked(selected)
-    const unlinkedItems = (selected.items || []).filter((entry) => casesLeft(entry) > TOLERANCE)
+    const waiting = (selected.items || []).filter((entry) => casesLeft(entry) > TOLERANCE).length
 
     if (selected.status === 'draft') {
       return {
@@ -447,17 +447,14 @@ const Dispatch = () => {
     if (selected.status === 'final' && !full) {
       return {
         tone: 'warn',
-        title: unlinkedItems.length === 1
+        title: waiting === 1
           ? 'One item still needs serial ranges'
-          : `${formatQuantity(unlinkedItems.length)} items still need serial ranges`,
+          : `${formatQuantity(waiting)} items still need serial ranges`,
         detail: 'This note cannot be marked loaded until every case carries one.',
         progress: { done, total, pct },
-        action: mayLink && unlinkedItems.length > 0
-          ? actionButton('Link next item', () => {
-            setOpenItemId(unlinkedItems[0].item?._id)
-            setNewEALData({ prefix: '', serialFrom: '', serialTo: '' })
-          })
-          : null
+        // No button: every row below carries its own, and a second door to
+        // the same room only makes the first one harder to find.
+        action: null
       }
     }
 
@@ -555,15 +552,11 @@ const Dispatch = () => {
 
             {/* Everything here narrows the list and nothing else, which is why it
                 sits inside the list rather than in a bar across the whole page. */}
-            <div className="flex shrink-0 flex-col gap-2 border-b border-[#EDECE8] px-3 py-3">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="m-0 text-[15px] font-semibold tracking-[-0.015em]">Dispatch notes</h2>
-                <span className="font-numeric text-[11px] text-[#5A636D] tabular-nums">
-                  {formatQuantity(notes.length)}
-                </span>
-              </div>
-
-              <label className="flex h-8 items-center gap-2 rounded-lg border border-[#E3E2DE] bg-[#F6F5F3] px-2.5">
+            {/* Four short rows. The page title already says Dispatch, so the
+                rail needs no heading of its own, and every row saved here is
+                another depot visible without scrolling. */}
+            <div className="flex shrink-0 flex-col gap-[7px] border-b border-[#EDECE8] p-2.5">
+              <label className="flex h-[30px] items-center gap-2 rounded-lg border border-[#E3E2DE] bg-[#F6F5F3] px-2.5">
                 <LuSearch className="shrink-0 text-[#8A919B]" />
                 <span className="sr-only">Search notes by depot, company or reference</span>
                 <input
@@ -581,7 +574,7 @@ const Dispatch = () => {
                     type="button"
                     aria-pressed={statusTab === entry.key}
                     onClick={() => setStatusTab(entry.key)}
-                    className={`h-[27px] flex-1 cursor-pointer rounded-md text-[11.5px] whitespace-nowrap ${
+                    className={`h-[25px] flex-1 cursor-pointer rounded-md text-[11px] whitespace-nowrap ${
                       statusTab === entry.key
                         ? 'bg-white font-semibold text-[#15181C] shadow-sm'
                         : 'text-[#5A636D] hover:text-[#15181C]'
@@ -592,18 +585,19 @@ const Dispatch = () => {
                 ))}
               </div>
 
-              <DateRangeModal dateRange={dateRange} onApplyDateRange={onApplyDateRange} />
-
+              {/* Date, company and market share one row; the full range is in
+                  the picker, so the trigger only has to say which days. */}
               <div className="flex gap-1.5">
+                <DateRangeModal compact dateRange={dateRange} onApplyDateRange={onApplyDateRange} />
                 {showCompanyFilter && (
                   <label className={`${railControl} min-w-0 flex-1`}>
                     <span className="sr-only">Company</span>
                     <select
                       value={company}
                       onChange={({ target }) => setCompany(target.value)}
-                      className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-[11.5px] outline-none"
+                      className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-[11px] outline-none"
                     >
-                      <option value="">All companies</option>
+                      <option value="">All firms</option>
                       {companies.map((option) => (
                         <option key={option._id} value={option._id}>{option.code || option.name}</option>
                       ))}
@@ -615,7 +609,7 @@ const Dispatch = () => {
                   <select
                     value={market}
                     onChange={({ target }) => setMarket(target.value)}
-                    className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-[11.5px] outline-none"
+                    className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-[11px] outline-none"
                   >
                     <option value="">All markets</option>
                     <option value="local">Local</option>
@@ -624,24 +618,24 @@ const Dispatch = () => {
                 </label>
               </div>
 
-              {/* Only when something is actually hiding notes, so the reason one
-                  is missing is never off screen. */}
-              {filtersActive && (
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-[11px] text-[#5A636D]">
-                    Showing{' '}
-                    <strong className="font-semibold text-[#15181C]">{formatQuantity(notes.length)}</strong>
-                    {' '}of {formatQuantity(dispatches.length)} notes
-                  </span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-numeric truncate text-[10.5px] text-[#5A636D] tabular-nums">
+                  {formatQuantity(notes.length)} {notes.length === 1 ? 'note' : 'notes'}
+                </span>
+                {/* Only while something is hiding notes, so the reason one is
+                    missing is never off screen. */}
+                {filtersActive ? (
                   <button
                     type="button"
                     onClick={clearFilters}
-                    className="shrink-0 cursor-pointer border-0 bg-transparent p-0 text-[11px] font-medium text-[#15594A] underline underline-offset-[3px]"
+                    className="shrink-0 cursor-pointer border-0 bg-transparent p-0 text-[10.5px] font-medium text-[#15594A] underline underline-offset-[3px]"
                   >
                     Clear filters
                   </button>
-                </div>
-              )}
+                ) : (
+                  <span className="shrink-0 text-[10.5px] text-[#A8ADB5]">All shown</span>
+                )}
+              </div>
             </div>
 
             {loading ? (
@@ -844,9 +838,14 @@ const Dispatch = () => {
                                     {itemLabel(entry.item) || '—'}
                                   </span>
                                   <span className="mt-0.5 block truncate text-[11.5px] font-normal text-[#5A636D]">
-                                    {entry.item?.bottlesPerCase
-                                      ? `${formatQuantity(entry.item.bottlesPerCase)} per case`
-                                      : 'Pack size not set'}
+                                    {[
+                                      entry.item?.bottlesPerCase
+                                        ? `${formatQuantity(entry.item.bottlesPerCase)} per case`
+                                        : 'Pack size not set',
+                                      ranges.length > 0
+                                        ? `${formatQuantity(ranges.length)} range${ranges.length === 1 ? '' : 's'}`
+                                        : null
+                                    ].filter(Boolean).join(' · ')}
                                   </span>
                                 </td>
                                 <td className={`${bodyCell} font-numeric text-right tabular-nums`}>
@@ -887,17 +886,13 @@ const Dispatch = () => {
                                         setOpenItemId(open ? null : itemId)
                                         setNewEALData({ prefix: '', serialFrom: '', serialTo: '' })
                                       }}
-                                      className={`inline-flex h-[30px] cursor-pointer items-center gap-1.5 rounded-[7px] border px-[11px] text-xs ${
+                                      className={`inline-flex h-[30px] w-[84px] cursor-pointer items-center justify-between gap-1.5 rounded-[7px] border px-2.5 text-xs whitespace-nowrap ${
                                         open
                                           ? 'border-[#15594A] bg-[#15594A] font-semibold text-white'
                                           : 'border-[#D7D6D1] bg-white font-medium text-[#2A2F36] hover:bg-[#FAFAF8]'
                                       }`}
                                     >
-                                      {open
-                                        ? 'Close'
-                                        : canLink && !covered
-                                          ? 'Link'
-                                          : `${formatQuantity(ranges.length)} range${ranges.length === 1 ? '' : 's'}`}
+                                      {open ? 'Close' : canLink && !covered ? 'Link' : 'Ranges'}
                                       {open ? <LuChevronUp /> : <LuChevronDown />}
                                     </button>
                                   )}
