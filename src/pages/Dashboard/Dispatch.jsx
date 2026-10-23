@@ -1,12 +1,13 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { LuChevronDown, LuDownload, LuEllipsis, LuPlus, LuRefreshCw, LuSearch, LuUndo2 } from 'react-icons/lu'
+import { LuChevronDown, LuDownload, LuPlus, LuRefreshCw, LuSearch, LuUndo2 } from 'react-icons/lu'
 import DashboardLayout from '../../components/layouts/DashboardLayout'
 import Modal from '../../components/Modal/Modal'
 import DateRangeModal from '../../components/Modal/DateRangeModal'
 import AddDispatchForm from '../../components/Dispatch/AddDispatchForm'
 import CoverNote from '../../components/Dispatch/CoverNote'
+import StickerSummary from '../../components/Dispatch/StickerSummary'
 import EmptyState from '../../components/Dashboard/EmptyState'
 import AnchoredMenu from '../../components/Dashboard/AnchoredMenu'
 import { SkeletonTableRows } from '../../components/Dashboard/Skeleton'
@@ -103,6 +104,8 @@ const Dispatch = () => {
   const [undoing, setUndoing] = useState(null) // { note, move }
   // A note opens over the list, so the list keeps its filters and its place.
   const [covering, setCovering] = useState(null)
+  // The stickers already on a note, laid out to be copied into the portal.
+  const [summarising, setSummarising] = useState(null)
   const [vehicleData, setVehicleData] = useState({ vehicleNumber: '', driverName: '', driverContact: '' })
   const [reloadToken, setReloadToken] = useState(0)
 
@@ -230,6 +233,16 @@ const Dispatch = () => {
     }
     return { to: move.to, label: move.label }
   }, [selectedNotes, mayStatus])
+
+  /**
+   * The main half of a row's split button. Before a note leaves, the work is
+   * covering its cases; after it has gone, the question is what went on it —
+   * which is the list the excise portal asks for.
+   */
+  const mainAction = (note) =>
+    note.status === 'draft' || note.status === 'final'
+      ? { label: 'Cover', run: () => setCovering(note) }
+      : { label: 'Stickers', run: () => setSummarising(note) }
 
   const toggleRow = (id) => setSelected((previous) => {
     const next = new Set(previous)
@@ -575,7 +588,7 @@ const Dispatch = () => {
             </div>
           ) : (
             <div ref={tableRef} className="overflow-x-auto">
-              <table className="w-full min-w-[920px] table-fixed border-collapse">
+              <table className="w-full min-w-[990px] table-fixed border-collapse">
                 <thead>
                   <tr>
                     <th className={`${headerCell} w-[42px] pl-4`}>
@@ -588,12 +601,14 @@ const Dispatch = () => {
                       />
                     </th>
                     <th className={headerCell}>Depot</th>
-                    <th className={`${headerCell} w-[138px]`}>Company</th>
-                    <th className={`${headerCell} w-[116px]`}>Date</th>
-                    <th className={`${headerCell} w-[124px]`}>Status</th>
-                    <th className={`${headerCell} w-[88px] text-right`}>Cases</th>
-                    <th className={`${headerCell} w-[170px]`}>Serial cover</th>
-                    <th className={`${headerCell} w-[52px] pr-4`}><span className="sr-only">More</span></th>
+                    {/* Wide enough for "Blue Ocean Beverages Pvt. Ltd." — the
+                        longest name in the data — rather than a truncation. */}
+                    <th className={`${headerCell} w-[206px]`}>Company</th>
+                    <th className={`${headerCell} w-[104px]`}>Date</th>
+                    <th className={`${headerCell} w-[116px]`}>Status</th>
+                    <th className={`${headerCell} w-[78px] text-right`}>Cases</th>
+                    <th className={`${headerCell} w-[140px]`}>Serial cover</th>
+                    <th className={`${headerCell} w-[124px] pr-4`}><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -610,6 +625,7 @@ const Dispatch = () => {
                       const moves = mayStatus ? movesFor(note, { mayReverse }) : []
                       const statusOpen = openMenu?.id === note._id && openMenu.kind === 'status'
                       const moreOpen = openMenu?.id === note._id && openMenu.kind === 'more'
+                      const main = mainAction(note)
 
                       return (
                         <tr key={note._id} className={chosen ? 'bg-[#F3F8F6]' : 'hover:bg-[#FAFAF8]'}>
@@ -635,15 +651,8 @@ const Dispatch = () => {
                             </span>
                           </td>
                           <td className={bodyCell}>
-                            <span className="flex items-center gap-1.5">
-                              {note.company?.code && (
-                                <span className="font-numeric shrink-0 rounded-[4px] bg-[#F0EFEC] px-[5px] py-px text-[10px] font-semibold tracking-[0.04em] text-[#3C434B]">
-                                  {note.company.code}
-                                </span>
-                              )}
-                              <span className="min-w-0 flex-1 truncate text-[12px] text-[#4A5159]">
-                                {note.company?.name || '—'}
-                              </span>
+                            <span className="block truncate text-[12px] text-[#4A5159]" title={note.company?.name || undefined}>
+                              {note.company?.name || '—'}
                             </span>
                           </td>
                           <td className={`${bodyCell} font-numeric text-[12.5px] whitespace-nowrap text-[#4A5159] tabular-nums`}>
@@ -758,20 +767,31 @@ const Dispatch = () => {
                           </td>
 
                           <td className={`${bodyCell} relative pr-4 text-right`} data-menu>
-                            <button
-                              type="button"
-                              aria-haspopup="menu"
-                              aria-expanded={moreOpen}
-                              aria-label={`More for ${note.deliveryTo?.name || 'this note'}`}
-                              onClick={({ currentTarget }) => setOpenMenu(
-                                moreOpen
-                                  ? null
-                                  : { id: note._id, kind: 'more', anchor: currentTarget.getBoundingClientRect() }
-                              )}
-                              className="inline-flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-[7px] border border-[#E3E2DE] bg-white text-[#5A636D] hover:bg-[#F2F1ED]"
-                            >
-                              <LuEllipsis />
-                            </button>
+                            {/* One press for the thing this note is waiting
+                                for; the arrow for everything else. */}
+                            <span className="inline-flex">
+                              <button
+                                type="button"
+                                onClick={main.run}
+                                className="inline-flex h-[30px] w-[78px] cursor-pointer items-center justify-center rounded-l-[7px] border border-[#D7D6D1] bg-white text-xs font-medium text-[#2A2F36] hover:bg-[#FAFAF8]"
+                              >
+                                {main.label}
+                              </button>
+                              <button
+                                type="button"
+                                aria-haspopup="menu"
+                                aria-expanded={moreOpen}
+                                aria-label={`More for ${note.deliveryTo?.name || 'this note'}`}
+                                onClick={({ currentTarget }) => setOpenMenu(
+                                  moreOpen
+                                    ? null
+                                    : { id: note._id, kind: 'more', anchor: currentTarget.getBoundingClientRect() }
+                                )}
+                                className="-ml-px inline-flex h-[30px] w-[26px] cursor-pointer items-center justify-center rounded-r-[7px] border border-[#D7D6D1] bg-white text-[#5A636D] hover:bg-[#F2F1ED]"
+                              >
+                                <LuChevronDown className="text-[13px]" />
+                              </button>
+                            </span>
                             {moreOpen && (
                               <AnchoredMenu
                                 role="menu"
@@ -787,6 +807,14 @@ const Dispatch = () => {
                                   className="w-full cursor-pointer rounded-[7px] border-0 bg-transparent px-[9px] py-[7px] text-left text-[12.5px] text-[#15181C] hover:bg-[#F2F1ED]"
                                 >
                                   Cover this note
+                                </button>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => { setOpenMenu(null); setSummarising(note) }}
+                                  className="w-full cursor-pointer rounded-[7px] border-0 bg-transparent px-[9px] py-[7px] text-left text-[12.5px] text-[#15181C] hover:bg-[#F2F1ED]"
+                                >
+                                  Sticker summary
                                 </button>
                                 {note.status === 'draft' && mayEdit && (
                                   <button
@@ -881,6 +909,16 @@ const Dispatch = () => {
             onChanged={() => setReloadToken((token) => token + 1)}
           />
         )}
+      </Modal>
+
+      {/* What went on the note, laid out to be copied into the portal. */}
+      <Modal
+        isOpen={Boolean(summarising)}
+        onClose={() => setSummarising(null)}
+        title="Sticker summary"
+        styleClass="w-full max-w-[920px]"
+      >
+        {summarising && <StickerSummary dispatchId={summarising._id} />}
       </Modal>
 
       {/* Undoing a stage: what it means, before it happens. */}
