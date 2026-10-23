@@ -15,12 +15,28 @@ export const LINKABLE_STATUS = 'final'
 
 export const STAGES = ['draft', 'final', 'loaded', 'dispatched', 'delivered']
 
-/** One step forward, and the one step back the server allows. */
+/** One step forward. */
 const FORWARD = {
   draft: 'final',
   final: 'loaded',
   loaded: 'dispatched',
   dispatched: 'delivered'
+}
+
+/** One step back, for a note moved on too soon. One stage at a time. */
+const BACKWARD = {
+  final: 'draft',
+  loaded: 'final',
+  dispatched: 'loaded',
+  delivered: 'dispatched'
+}
+
+/** What undoing a stage actually means, in the words someone would use. */
+const UNDOING = {
+  draft: 'Its lines and quantities can be changed again, and labels cannot be linked until it is Final once more.',
+  final: 'Its labels can be linked and unlinked again. Any vehicle already recorded stays until it is loaded afresh.',
+  loaded: 'It goes back to standing in the yard, as though the lorry had not left.',
+  dispatched: 'It goes back to being on the road, as though the depot had not confirmed receipt.'
 }
 
 export const linkedCases = (note) => note?.EALIssuedTotalQuantity || 0
@@ -63,15 +79,18 @@ export const movesFor = (note) => {
     }
   }
 
-  // Back to draft, only while nothing has been linked against the note.
-  if (from === 'final') {
-    const linked = linkedCases(note) > 0
+  // One step back. Going back to draft is the only one the server guards,
+  // because it reopens the lines themselves.
+  const backward = BACKWARD[from]
+  if (backward) {
+    const linked = backward === 'draft' && linkedCases(note) > 0
     moves.push({
-      to: 'draft',
-      label: 'Back to draft',
+      to: backward,
+      label: `Back to ${LABEL[backward].toLowerCase()}`,
       back: true,
       allowed: !linked,
-      reason: linked ? 'Labels are already linked. Unlink them first.' : undefined
+      reason: linked ? 'Labels are already linked. Unlink them first.' : undefined,
+      consequence: UNDOING[backward]
     })
   }
 

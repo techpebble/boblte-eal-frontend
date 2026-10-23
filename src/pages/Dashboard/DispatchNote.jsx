@@ -16,7 +16,7 @@ import { API_PATHS } from '../../utils/apiPaths'
 import { formatDate } from '../../utils/helper'
 import { UserContext } from '../../context/userContext'
 import { can } from '../../utils/permissions'
-import { LINKABLE_STATUS, TOLERANCE, casesLeft, linkedCases, totalCases } from '../../utils/dispatchStages'
+import { LINKABLE_STATUS, TOLERANCE, casesLeft, linkedCases, movesFor, totalCases } from '../../utils/dispatchStages'
 
 const headerCell =
   'bg-[#FAFAF8] px-3.5 pt-[11px] pb-2.5 text-left text-[11px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase whitespace-nowrap'
@@ -55,6 +55,8 @@ const DispatchNote = () => {
   const [vehicleData, setVehicleData] = useState({ vehicleNumber: '', driverName: '', driverContact: '' })
   const [unlinkCandidate, setUnlinkCandidate] = useState(null)
   const [unlinkConfirmText, setUnlinkConfirmText] = useState('')
+  // Undoing a stage is not a one-click act: it says what it will mean first.
+  const [undoing, setUndoing] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -299,6 +301,9 @@ const DispatchNote = () => {
     return { tone: 'good', title: 'Delivered', detail: 'Nothing left to do on this note.', action: null }
   }
 
+  // The one step back this stage allows, if any.
+  const back = note ? movesFor(note).find((move) => move.back) : null
+
   const step = nextStep()
   const stepTone = {
     warn: { border: '#C07A1E', bar: '#C07A1E' },
@@ -355,8 +360,16 @@ const DispatchNote = () => {
               <div className="flex flex-wrap gap-2">
                 {note.status === 'draft' && mayEdit && actionButton('Edit note', () => setFormOpen(true), 'secondary')}
                 {note.status === 'draft' && mayDelete && actionButton('Delete', removeNote, 'danger')}
-                {note.status === LINKABLE_STATUS && mayStatus && linkedCases(note) === 0 &&
-                  actionButton('Back to draft', () => moveTo('draft'), 'secondary')}
+                {mayStatus && back && back.allowed &&
+                  actionButton(back.label, () => setUndoing(back), 'secondary')}
+                {mayStatus && back && !back.allowed && (
+                  <span
+                    className="flex h-9 shrink-0 items-center rounded-lg border border-[#E3E2DE] bg-[#F2F1ED] px-3.5 text-[12.5px] text-[#8A919B]"
+                    title={back.reason}
+                  >
+                    {back.label} — {back.reason}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -683,6 +696,51 @@ const DispatchNote = () => {
           </>
         )}
       </div>
+
+      {/* Undoing a stage: what it means, before it happens. */}
+      <Modal
+        isOpen={Boolean(undoing)}
+        onClose={() => setUndoing(null)}
+        title="Undo a stage"
+        styleClass="w-full max-w-lg"
+      >
+        {undoing && note && (
+          <div className="flex flex-col gap-4">
+            <div>
+              <h2 className="m-0 text-[19px] font-semibold tracking-[-0.018em]">
+                Send this note back to {undoing.to}?
+              </h2>
+              <p className="mt-2 mb-0 text-[12.5px] leading-[1.55] text-[#5A636D]">{undoing.consequence}</p>
+            </div>
+            <p className="m-0 rounded-[10px] border border-[#EDECE8] bg-[#FAFAF8] px-3.5 py-3 text-[12.5px] text-[#3C434B]">
+              It moves one stage, from <strong className="font-semibold text-[#15181C]">{note.status}</strong> to{' '}
+              <strong className="font-semibold text-[#15181C]">{undoing.to}</strong>. Everything already recorded
+              against it stays as it is.
+            </p>
+            <div className="flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setUndoing(null)}
+                className="h-9 cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-3.5 text-[13px] font-medium text-[#2A2F36]"
+              >
+                Leave it as it is
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  const to = undoing.to
+                  setUndoing(null)
+                  await moveTo(to)
+                }}
+                className="h-9 cursor-pointer rounded-lg border border-[#8A5A00] bg-[#8A5A00] px-3.5 text-[13px] font-semibold text-white hover:bg-[#734B00] disabled:opacity-60"
+              >
+                Send it back to {undoing.to}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Edit note */}
       <Modal isOpen={formOpen} onClose={() => setFormOpen(false)} title="Update Dispatch" styleClass="w-full">

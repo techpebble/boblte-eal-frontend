@@ -93,6 +93,8 @@ const Dispatch = () => {
 
   const [formOpen, setFormOpen] = useState(false)
   const [vehicleFor, setVehicleFor] = useState(null)
+  // Undoing a stage is not a one-click act: it says what it will mean first.
+  const [undoing, setUndoing] = useState(null) // { note, move }
   const [vehicleData, setVehicleData] = useState({ vehicleNumber: '', driverName: '', driverContact: '' })
   const [reloadToken, setReloadToken] = useState(0)
 
@@ -653,12 +655,22 @@ const Dispatch = () => {
                                   Move this note on
                                 </p>
                                 {moves.map((move) => (
+                                  <React.Fragment key={move.to}>
+                                  {move.back && (
+                                    <span className="my-1 block h-px bg-[#EDECE8]" />
+                                  )}
                                   <button
-                                    key={move.to}
                                     type="button"
                                     role="menuitem"
                                     disabled={!move.allowed || busy}
-                                    onClick={() => moveNote(note, move.to)}
+                                    onClick={() => {
+                                      if (move.back) {
+                                        setUndoing({ note, move })
+                                        setOpenMenu(null)
+                                        return
+                                      }
+                                      moveNote(note, move.to)
+                                    }}
                                     className={`flex w-full items-start gap-2 rounded-[7px] border-0 bg-transparent px-[9px] py-[7px] text-left text-[12.5px] ${
                                       move.allowed
                                         ? 'cursor-pointer font-medium text-[#15181C] hover:bg-[#F2F1ED]'
@@ -680,6 +692,7 @@ const Dispatch = () => {
                                       )}
                                     </span>
                                   </button>
+                                  </React.Fragment>
                                 ))}
                               </div>
                             )}
@@ -808,6 +821,55 @@ const Dispatch = () => {
 
       <Modal isOpen={formOpen} onClose={() => setFormOpen(false)} title="Add Dispatch" styleClass="w-full">
         <AddDispatchForm onSubmitDispatch={handleSubmitDispatch} dispatchDetails={[]} />
+      </Modal>
+
+      {/* Undoing a stage: what it means, before it happens. */}
+      <Modal
+        isOpen={Boolean(undoing)}
+        onClose={() => setUndoing(null)}
+        title="Undo a stage"
+        styleClass="w-full max-w-lg"
+      >
+        {undoing && (
+          <div className="flex flex-col gap-4">
+            <div>
+              <h2 className="m-0 text-[19px] font-semibold tracking-[-0.018em]">
+                Send {undoing.note.deliveryTo?.name || 'this note'} back to{' '}
+                {undoing.move.to}?
+              </h2>
+              <p className="mt-2 mb-0 text-[12.5px] leading-[1.55] text-[#5A636D]">
+                {undoing.move.consequence}
+              </p>
+            </div>
+            <p className="m-0 rounded-[10px] border border-[#EDECE8] bg-[#FAFAF8] px-3.5 py-3 text-[12.5px] text-[#3C434B]">
+              It moves one stage, from{' '}
+              <strong className="font-semibold text-[#15181C]">{undoing.note.status}</strong> to{' '}
+              <strong className="font-semibold text-[#15181C]">{undoing.move.to}</strong>. Everything
+              already recorded against it stays as it is.
+            </p>
+            <div className="flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setUndoing(null)}
+                className="h-9 cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-3.5 text-[13px] font-medium text-[#2A2F36]"
+              >
+                Leave it as it is
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  const { note, move } = undoing
+                  setUndoing(null)
+                  await moveNote(note, move.to)
+                }}
+                className="h-9 cursor-pointer rounded-lg border border-[#8A5A00] bg-[#8A5A00] px-3.5 text-[13px] font-semibold text-white hover:bg-[#734B00] disabled:opacity-60"
+              >
+                Send it back to {undoing.move.to}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       <Modal
