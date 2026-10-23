@@ -1,19 +1,18 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { LuChevronRight, LuCircle, LuX } from 'react-icons/lu'
+import { LuCircle, LuX } from 'react-icons/lu'
 import SerialRange from '../Dashboard/SerialRange'
 import { SkeletonLines } from '../Dashboard/Skeleton'
 import { CheckIcon, TruckIcon } from '../Dashboard/icons'
 import EmptyState from '../Dashboard/EmptyState'
-import { formatQuantity, itemLabel, marketStyle, padSerial, shortReference } from '../Dashboard/dashboardFormat'
+import { formatQuantity, itemLabel, marketStyle, shortReference } from '../Dashboard/dashboardFormat'
 import axiosInstance from '../../utils/axiosInstance'
 import { API_PATHS } from '../../utils/apiPaths'
 import { formatDate } from '../../utils/helper'
 import { UserContext } from '../../context/userContext'
 import { can } from '../../utils/permissions'
 import { LINKABLE_STATUS, TOLERANCE, casesLeft, linkedCases, totalCases } from '../../utils/dispatchStages'
-import { planCover } from '../../utils/coverPlan'
 
 const headerCell =
   'bg-[#FAFAF8] px-3 pt-[9px] pb-2 text-left text-[10.5px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase whitespace-nowrap'
@@ -22,12 +21,6 @@ const fieldClass =
   'h-9 w-full rounded-lg border border-[#D7D6D1] bg-white px-2.5 font-numeric text-[13px] tabular-nums outline-none focus:border-[#15594A] focus:ring-[3px] focus:ring-[#E7F0EC]'
 
 const tenDigits = (value) => /^\d{10}$/.test(String(value ?? '').trim())
-
-const STRATEGIES = [
-  { key: 'oldest', label: 'Oldest first' },
-  { key: 'largest', label: 'Fewest ranges' },
-  { key: 'single', label: 'One run only' }
-]
 
 /**
  * Covering one dispatch note's cases with serial ranges.
@@ -47,12 +40,7 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
   const [touched, setTouched] = useState(false)
 
   const [focusedId, setFocusedId] = useState(null)
-  const [strategy, setStrategy] = useState('oldest')
-  const [stock, setStock] = useState([])
-  const [stockLoading, setStockLoading] = useState(false)
-  const [dropped, setDropped] = useState(() => new Set())
-  const [manualOpen, setManualOpen] = useState(false)
-  const [manual, setManual] = useState({ prefix: '', serialFrom: '', serialTo: '' })
+  const [entry, setEntry] = useState({ prefix: '', serialFrom: '', serialTo: '' })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -82,52 +70,8 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
   const perCase = focused?.item?.bottlesPerCase || 0
   const canLink = mayLink && note?.status === LINKABLE_STATUS
 
-  // What production has left for this item. The same question addEALDispatch
-  // asks internally, asked here so a person does not have to read it off a list.
-  useEffect(() => {
-    if (!focused || !note || !canLink || shortfall <= TOLERANCE) { setStock([]); return undefined }
-    let cancelled = false
-    setStockLoading(true)
-
-    const run = async () => {
-      try {
-        const response = await axiosInstance.get(API_PATHS.EALUSAGE.GET_DATA, {
-          params: {
-            type: 'balance',
-            company: note.company?._id || note.company,
-            market: note.market
-          }
-        })
-        if (cancelled) return
-        const rows = (response.data?.data || []).filter(
-          (entry) => String(entry.item?._id || entry.item) === String(focused.item?._id)
-        )
-        setStock(rows)
-      } catch (err) {
-        if (!cancelled) {
-          console.error('Could not read production stock.', err)
-          setStock([])
-        }
-      } finally {
-        if (!cancelled) setStockLoading(false)
-      }
-    }
-
-    run()
-    return () => { cancelled = true }
-  }, [focused, note, canLink, shortfall])
-
-  useEffect(() => { setDropped(new Set()) }, [focusedId, strategy])
-
-  const plan = useMemo(
-    () => planCover({ usages: stock, perCase, casesNeeded: Math.round(shortfall), strategy }),
-    [stock, perCase, shortfall, strategy]
-  )
-
-  const keyOf = (line) => `${line.prefix}-${line.serialFrom}-${line.serialTo}`
-  const kept = plan.lines.filter((line) => !dropped.has(keyOf(line)))
-  const keptCases = kept.reduce((sum, line) => sum + line.cases, 0)
-  const keptLabels = kept.reduce((sum, line) => sum + line.labels, 0)
+  // A fresh item means a fresh form.
+  useEffect(() => { setEntry({ prefix: '', serialFrom: '', serialTo: '' }) }, [focusedId])
 
   const linkOne = async (prefix, serialFrom, serialTo) => {
     const response = await axiosInstance.post(API_PATHS.EALDISPATCH.ADD_EAL_LINK, {
@@ -140,55 +84,39 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
     return response.data.updatedDispatch
   }
 
-  /** One call per range, because the API links one at a time. Whatever lands
-      is kept; the rest are named rather than silently dropped. */
-  const linkPlan = async () => {
-    if (kept.length === 0) return
-    setBusy(true)
-    let latest = note
-    const failed = []
-
-    for (const line of kept) {
-      try {
-        latest = await linkOne(line.prefix, line.serialFrom, line.serialTo)
-      } catch (err) {
-        failed.push(err?.response?.data?.message || `${line.prefix}${padSerial(line.serialFrom)}`)
-      }
-    }
-
-    setNote(latest)
-    setTouched(true)
-    setDropped(new Set())
-    if (failed.length === 0) {
-      toast.success(`${formatQuantity(kept.length)} range${kept.length === 1 ? '' : 's'} linked`)
-    } else {
-      toast.error(`${formatQuantity(failed.length)} of ${formatQuantity(kept.length)} could not be linked: ${failed[0]}`)
-    }
-    setBusy(false)
-  }
-
-  const manualChecks = useMemo(() => {
-    const prefix = manual.prefix.trim()
-    const ready = tenDigits(manual.serialFrom) && tenDigits(manual.serialTo)
-    const from = Number(manual.serialFrom)
-    const to = Number(manual.serialTo)
+  /** Mirrors what addEALLinkToDispatchItem enforces, so a bad range is caught
+      before it is sent. A check stays unjudged until the fields it reads hold
+      something, so an untouched form shows no verdicts. */
+  const checks = useMemo(() => {
+    const prefix = entry.prefix.trim()
+    const ready = tenDigits(entry.serialFrom) && tenDigits(entry.serialTo)
+    const from = Number(entry.serialFrom)
+    const to = Number(entry.serialTo)
     const count = ready ? to - from + 1 : 0
     const cases = ready && perCase > 0 && count > 0 ? count / perCase : 0
-    return {
-      cases,
-      countKnown: ready && count > 0,
-      valid: /^[A-Z]{3}$/.test(prefix) && ready && count > 0 && perCase > 0 &&
-        count % perCase === 0 && to % perCase === 0 && (from - 1) % perCase === 0 &&
-        cases <= shortfall + TOLERANCE
-    }
-  }, [manual, perCase, shortfall])
 
-  const addManual = async () => {
-    if (!manualChecks.valid) return
+    const check = (judged, ok, text) => ({ state: !judged ? 'pending' : ok ? 'ok' : 'bad', text })
+    const list = [
+      check(prefix.length > 0, /^[A-Z]{3}$/.test(prefix), 'Prefix is three uppercase letters.'),
+      check(Boolean(entry.serialFrom || entry.serialTo), ready, 'Both serials are ten digits.'),
+      check(ready, count > 0, 'Serial to is above serial from.'),
+      check(
+        ready && count > 0,
+        perCase > 0 && count % perCase === 0 && to % perCase === 0 && (from - 1) % perCase === 0,
+        `The range closes on a whole case of ${perCase || '—'}.`
+      ),
+      check(cases > 0, cases <= shortfall + TOLERANCE, `Fits the ${formatQuantity(shortfall)} case(s) still to cover.`)
+    ]
+
+    return { list, cases, countKnown: ready && count > 0, valid: list.every((item) => item.state === 'ok') }
+  }, [entry, perCase, shortfall])
+
+  const addRange = async () => {
+    if (!checks.valid) return
     try {
       setBusy(true)
-      setNote(await linkOne(manual.prefix, manual.serialFrom, manual.serialTo))
-      setManual({ prefix: '', serialFrom: '', serialTo: '' })
+      setNote(await linkOne(entry.prefix, entry.serialFrom, entry.serialTo))
+      setEntry({ prefix: '', serialFrom: '', serialTo: '' })
       setTouched(true)
       toast.success('Range linked')
     } catch (err) {
@@ -360,187 +288,92 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
                 </p>
               </div>
 
-              {/* The app proposes; the person checks. */}
+              {/* Adding a range. The arithmetic the server will apply is
+                  spelled out beneath, so a refusal is never a surprise. */}
               {canLink && shortfall > TOLERANCE && (
                 <div className="overflow-hidden rounded-[11px] border border-[#C9DED6] bg-white">
-                  <div className="flex flex-wrap items-center gap-3 border-b border-[#DCEAE4] bg-[#F3F8F6] px-[15px] py-3">
-                    <div className="min-w-0 flex-[1_1_240px]">
-                      <h4 className="m-0 text-[13px] font-semibold tracking-[-0.008em] text-[#0D3C32]">
-                        Proposed from production stock
-                      </h4>
-                      <p className="mt-0.5 mb-0 text-[11.5px] text-[#3C5B52]">
-                        {stockLoading
-                          ? 'Reading what production has left…'
-                          : `${formatQuantity(stock.length)} run${stock.length === 1 ? '' : 's'} hold labels for this item.`}
-                      </p>
-                    </div>
-                    <label className="flex items-center gap-1.5 text-[11.5px] text-[#3C5B52]">
-                      Take from
-                      <select
-                        value={strategy}
-                        onChange={({ target }) => setStrategy(target.value)}
-                        className="h-7 cursor-pointer rounded-[7px] border border-[#C9DED6] bg-white px-1.5 text-[11.5px] text-[#0D3C32]"
-                      >
-                        {STRATEGIES.map((entry) => (
-                          <option key={entry.key} value={entry.key}>{entry.label}</option>
-                        ))}
-                      </select>
-                    </label>
+                  <div className="border-b border-[#DCEAE4] bg-[#F3F8F6] px-[15px] py-2.5">
+                    <h4 className="m-0 text-[13px] font-semibold tracking-[-0.008em] text-[#0D3C32]">Add a serial range</h4>
+                    <p className="mt-0.5 mb-0 text-[11.5px] text-[#3C5B52]">
+                      {perCase
+                        ? `${formatQuantity(perCase)} bottles make one case, so the range has to close on a whole case.`
+                        : 'This item has no pack size set, so a range cannot be checked against cases.'}
+                    </p>
                   </div>
 
-                  {stockLoading ? (
-                    <div className="px-4 py-4"><SkeletonLines rows={3} /></div>
-                  ) : kept.length === 0 ? (
-                    <p className="m-0 px-[15px] py-4 text-[12px] text-[#5A636D]">
-                      {stock.length === 0
-                        ? 'No production run for this item has labels left. Record the usage first, or type a range by hand below.'
-                        : 'Nothing left to propose — drop fewer ranges, or type one by hand below.'}
-                    </p>
-                  ) : (
-                    <>
-                      <table className="w-full border-collapse">
-                        <thead>
-                          <tr>
-                            <th className={`${headerCell} w-[86px] pl-[15px]`}>Run</th>
-                            <th className={headerCell}>Serial range</th>
-                            <th className={`${headerCell} w-[82px] text-right`}>Labels</th>
-                            <th className={`${headerCell} w-[70px] text-right`}>Cases</th>
-                            <th className={`${headerCell} w-[44px] pr-[15px]`} />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {kept.map((line) => (
-                            <tr key={keyOf(line)}>
-                              <td className={`${bodyCell} font-numeric pl-[15px] text-[11.5px] text-[#5A636D] tabular-nums`}>
-                                {formatDate(line.dateUsed)}
-                              </td>
-                              <td className={bodyCell}>
-                                <SerialRange prefix={line.prefix} serialFrom={line.serialFrom} serialTo={line.serialTo} />
-                              </td>
-                              <td className={`${bodyCell} font-numeric text-right tabular-nums`}>{formatQuantity(line.labels)}</td>
-                              <td className={`${bodyCell} font-numeric text-right font-semibold tabular-nums`}>{formatQuantity(line.cases)}</td>
-                              <td className={`${bodyCell} pr-[15px] text-right`}>
-                                <button
-                                  type="button"
-                                  aria-label="Drop this range from the proposal"
-                                  onClick={() => setDropped((previous) => new Set(previous).add(keyOf(line)))}
-                                  className="inline-flex h-[26px] w-[26px] cursor-pointer items-center justify-center rounded-[7px] border border-[#E3E2DE] bg-white text-[#5A636D] hover:bg-[#F2F1ED]"
-                                >
-                                  <LuX />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-
-                      <div className="flex flex-wrap items-center gap-3 border-t border-[#DEDDD8] bg-[#FAFAF8] px-[15px] py-2.5">
-                        <p className="m-0 flex min-w-0 flex-[1_1_260px] items-center gap-[7px] text-[12px] text-[#15594A]">
-                          <CheckIcon size={14} strokeWidth={2.4} />
-                          <span>
-                            <strong className="font-semibold">
-                              {formatQuantity(kept.length)} range{kept.length === 1 ? '' : 's'} ·{' '}
-                              {formatQuantity(keptCases)} cases · {formatQuantity(keptLabels)} labels.
-                            </strong>{' '}
-                            {keptCases + TOLERANCE >= shortfall
-                              ? 'Covers this item exactly.'
-                              : `Leaves ${formatQuantity(shortfall - keptCases)} cases short.`}
-                          </span>
-                        </p>
-                        <div className="flex gap-2">
-                          {dropped.size > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => setDropped(new Set())}
-                              className="h-[34px] cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-3 text-[12.5px] font-medium text-[#2A2F36]"
-                            >
-                              Start again
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={linkPlan}
-                            className="h-[34px] cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-[15px] text-[12.5px] font-semibold text-white hover:bg-[#124C3F] disabled:opacity-60"
-                          >
-                            {busy ? 'Linking…' : `Link ${kept.length === 1 ? 'this range' : `these ${kept.length} ranges`}`}
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* The old way, one click down, for a serial read off the labels */}
-              {canLink && shortfall > TOLERANCE && (
-                <div className="rounded-[11px] border border-[#E3E2DE] bg-white">
-                  <button
-                    type="button"
-                    aria-expanded={manualOpen}
-                    onClick={() => setManualOpen((open) => !open)}
-                    className="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-[15px] py-2.5 text-left text-[12px] font-medium text-[#2A2F36]"
+                  <form
+                    className="flex flex-wrap items-end gap-2.5 px-[15px] pt-3 pb-2"
+                    onSubmit={(event) => { event.preventDefault(); addRange() }}
                   >
-                    <LuChevronRight className={`text-[#8A919B] ${manualOpen ? 'rotate-90' : ''}`} />
-                    Type a range by hand instead
-                    <span className="font-normal text-[#5A636D]">— for a serial read off the labels</span>
-                  </button>
-                  {manualOpen && (
-                    <form
-                      className="flex flex-wrap items-end gap-2.5 px-[15px] pb-3.5"
-                      onSubmit={(event) => { event.preventDefault(); addManual() }}
+                    <div className="flex-[0_0_88px]">
+                      <label htmlFor="c-prefix" className="mb-1 block text-[11px] font-medium text-[#3C434B]">Prefix</label>
+                      <input
+                        id="c-prefix"
+                        value={entry.prefix}
+                        onChange={({ target }) => setEntry((p) => ({ ...p, prefix: target.value.toUpperCase() }))}
+                        maxLength={3}
+                        placeholder="ABC"
+                        className={`${fieldClass} tracking-[0.08em] uppercase`}
+                      />
+                    </div>
+                    <div className="min-w-0 flex-[1_1_140px]">
+                      <label htmlFor="c-from" className="mb-1 block text-[11px] font-medium text-[#3C434B]">Serial from</label>
+                      <input
+                        id="c-from"
+                        value={entry.serialFrom}
+                        onChange={({ target }) => setEntry((p) => ({ ...p, serialFrom: target.value }))}
+                        inputMode="numeric"
+                        placeholder="10 digits"
+                        className={fieldClass}
+                      />
+                    </div>
+                    <div className="min-w-0 flex-[1_1_140px]">
+                      <label htmlFor="c-to" className="mb-1 block text-[11px] font-medium text-[#3C434B]">Serial to</label>
+                      <input
+                        id="c-to"
+                        value={entry.serialTo}
+                        onChange={({ target }) => setEntry((p) => ({ ...p, serialTo: target.value }))}
+                        inputMode="numeric"
+                        placeholder="10 digits"
+                        className={fieldClass}
+                      />
+                    </div>
+                    <div className="flex-[0_0_104px]">
+                      <span className="mb-1 block text-[11px] font-medium text-[#3C434B]">Resolves to</span>
+                      <div className="flex h-9 items-center gap-1.5 rounded-lg border border-dashed border-[#C9DED6] bg-[#F3F8F6] px-2.5">
+                        <span className="font-numeric text-[13px] font-semibold text-[#0D3C32] tabular-nums">
+                          {checks.countKnown ? formatQuantity(checks.cases) : '—'}
+                        </span>
+                        <span className="text-[11px] text-[#15594A]">cases</span>
+                      </div>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={!checks.valid || busy}
+                      className="h-9 shrink-0 cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[12.5px] font-semibold text-white hover:bg-[#124C3F] disabled:cursor-not-allowed disabled:border-[#E3E2DE] disabled:bg-[#F2F1ED] disabled:text-[#A8ADB5]"
                     >
-                      <div className="flex-[0_0_88px]">
-                        <label htmlFor="c-prefix" className="mb-1 block text-[11px] font-medium text-[#3C434B]">Prefix</label>
-                        <input
-                          id="c-prefix"
-                          value={manual.prefix}
-                          onChange={({ target }) => setManual((p) => ({ ...p, prefix: target.value.toUpperCase() }))}
-                          maxLength={3}
-                          placeholder="ABC"
-                          className={`${fieldClass} tracking-[0.08em] uppercase`}
-                        />
-                      </div>
-                      <div className="min-w-0 flex-[1_1_140px]">
-                        <label htmlFor="c-from" className="mb-1 block text-[11px] font-medium text-[#3C434B]">Serial from</label>
-                        <input
-                          id="c-from"
-                          value={manual.serialFrom}
-                          onChange={({ target }) => setManual((p) => ({ ...p, serialFrom: target.value }))}
-                          inputMode="numeric"
-                          placeholder="10 digits"
-                          className={fieldClass}
-                        />
-                      </div>
-                      <div className="min-w-0 flex-[1_1_140px]">
-                        <label htmlFor="c-to" className="mb-1 block text-[11px] font-medium text-[#3C434B]">Serial to</label>
-                        <input
-                          id="c-to"
-                          value={manual.serialTo}
-                          onChange={({ target }) => setManual((p) => ({ ...p, serialTo: target.value }))}
-                          inputMode="numeric"
-                          placeholder="10 digits"
-                          className={fieldClass}
-                        />
-                      </div>
-                      <div className="flex-[0_0_104px]">
-                        <span className="mb-1 block text-[11px] font-medium text-[#3C434B]">Resolves to</span>
-                        <div className="flex h-9 items-center gap-1.5 rounded-lg border border-dashed border-[#D7D6D1] bg-[#FAFAF8] px-2.5">
-                          <span className="font-numeric text-[13px] font-semibold text-[#0D3C32] tabular-nums">
-                            {manualChecks.countKnown ? formatQuantity(manualChecks.cases) : '—'}
-                          </span>
-                          <span className="text-[11px] text-[#5A636D]">cases</span>
-                        </div>
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={!manualChecks.valid || busy}
-                        className="h-9 shrink-0 cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[12.5px] font-semibold text-white disabled:cursor-not-allowed disabled:border-[#E3E2DE] disabled:bg-[#F2F1ED] disabled:text-[#A8ADB5]"
+                      {busy ? 'Linking…' : 'Add range'}
+                    </button>
+                  </form>
+
+                  <ul className="m-0 flex list-none flex-col gap-1.5 px-[15px] pb-3.5">
+                    {checks.list.map((item) => (
+                      <li
+                        key={item.text}
+                        className="flex items-start gap-2 text-[11.5px]"
+                        style={{
+                          color: item.state === 'ok' ? '#15594A' : item.state === 'bad' ? '#9B2C2C' : '#8A919B'
+                        }}
                       >
-                        Add range
-                      </button>
-                    </form>
-                  )}
+                        <span className="mt-px flex h-[13px] w-[13px] shrink-0 items-center justify-center">
+                          {item.state === 'ok' && <CheckIcon size={13} strokeWidth={2.4} />}
+                          {item.state === 'bad' && <LuX />}
+                          {item.state === 'pending' && <span className="block h-[5px] w-[5px] rounded-full bg-[#C3C2BD]" />}
+                        </span>
+                        {item.text}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
 
