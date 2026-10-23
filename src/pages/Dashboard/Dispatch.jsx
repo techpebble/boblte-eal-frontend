@@ -1,11 +1,12 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { LuChevronDown, LuDownload, LuEllipsis, LuPlus, LuSearch, LuUndo2 } from 'react-icons/lu'
+import { LuChevronDown, LuDownload, LuEllipsis, LuPlus, LuRefreshCw, LuSearch, LuUndo2 } from 'react-icons/lu'
 import DashboardLayout from '../../components/layouts/DashboardLayout'
 import Modal from '../../components/Modal/Modal'
 import DateRangeModal from '../../components/Modal/DateRangeModal'
 import AddDispatchForm from '../../components/Dispatch/AddDispatchForm'
+import CoverNote from '../../components/Dispatch/CoverNote'
 import EmptyState from '../../components/Dashboard/EmptyState'
 import { SkeletonTableRows } from '../../components/Dashboard/Skeleton'
 import { TruckIcon } from '../../components/Dashboard/icons'
@@ -99,6 +100,8 @@ const Dispatch = () => {
   const [vehicleFor, setVehicleFor] = useState(null)
   // Undoing a stage is not a one-click act: it says what it will mean first.
   const [undoing, setUndoing] = useState(null) // { note, move }
+  // A note opens over the list, so the list keeps its filters and its place.
+  const [covering, setCovering] = useState(null)
   const [vehicleData, setVehicleData] = useState({ vehicleNumber: '', driverName: '', driverContact: '' })
   const [reloadToken, setReloadToken] = useState(0)
 
@@ -374,6 +377,17 @@ const Dispatch = () => {
             <p className="mt-1.5 mb-0 text-[13px] text-[#5A636D]">Notes raised, and how far each one has got.</p>
           </div>
           <div className="flex gap-2">
+            {/* Ask the same question again. Nudging a filter and nudging it
+                back was the long way round to see what had happened since. */}
+            <button
+              type="button"
+              onClick={() => setReloadToken((token) => token + 1)}
+              disabled={loading}
+              className="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#D7D6D1] bg-white px-[13px] text-[13px] font-medium text-[#2A2F36] hover:bg-[#FAFAF8] disabled:cursor-not-allowed disabled:text-[#A8ADB5]"
+            >
+              <LuRefreshCw className={loading ? 'animate-spin' : undefined} />
+              Refresh
+            </button>
             <button
               type="button"
               onClick={exportNotes}
@@ -605,9 +619,13 @@ const Dispatch = () => {
                             />
                           </td>
                           <td className={`${bodyCell} font-medium text-[#15181C]`}>
-                            <Link to={`/dispatch/${note._id}`} className="block truncate text-inherit hover:underline">
+                            <button
+                              type="button"
+                              onClick={() => setCovering(note)}
+                              className="block w-full cursor-pointer truncate border-0 bg-transparent p-0 text-left text-inherit hover:underline"
+                            >
                               {note.deliveryTo?.name || 'Depot not set'}
-                            </Link>
+                            </button>
                             <span className="font-numeric mt-0.5 block truncate text-[11px] font-normal text-[#8A919B] tabular-nums">
                               {shortReference(note._id)}
                             </span>
@@ -718,12 +736,13 @@ const Dispatch = () => {
                               {full ? (
                                 <span className="font-numeric shrink-0 text-[11px] font-medium text-[#5A636D] tabular-nums">Full</span>
                               ) : (
-                                <Link
-                                  to={`/dispatch/${note._id}`}
-                                  className="font-numeric shrink-0 text-[11px] font-semibold text-[#8A5A00] underline underline-offset-[3px] tabular-nums"
+                                <button
+                                  type="button"
+                                  onClick={() => setCovering(note)}
+                                  className="font-numeric shrink-0 cursor-pointer border-0 bg-transparent p-0 text-[11px] font-semibold text-[#8A5A00] underline underline-offset-[3px] tabular-nums"
                                 >
                                   {formatQuantity(total - done)} left
-                                </Link>
+                                </button>
                               )}
                             </span>
                           </td>
@@ -747,10 +766,10 @@ const Dispatch = () => {
                                 <button
                                   type="button"
                                   role="menuitem"
-                                  onClick={() => navigate(`/dispatch/${note._id}`)}
+                                  onClick={() => { setOpenMenu(null); setCovering(note) }}
                                   className="w-full cursor-pointer rounded-[7px] border-0 bg-transparent px-[9px] py-[7px] text-left text-[12.5px] text-[#15181C] hover:bg-[#F2F1ED]"
                                 >
-                                  Open this note
+                                  Cover this note
                                 </button>
                                 {note.status === 'draft' && mayEdit && (
                                   <button
@@ -759,7 +778,7 @@ const Dispatch = () => {
                                     onClick={() => navigate(`/dispatch/${note._id}`)}
                                     className="w-full cursor-pointer rounded-[7px] border-0 bg-transparent px-[9px] py-[7px] text-left text-[12.5px] text-[#15181C] hover:bg-[#F2F1ED]"
                                   >
-                                    Edit the lines
+                                    Open the full page
                                   </button>
                                 )}
                                 {note.status === 'draft' && mayDelete && (
@@ -825,6 +844,26 @@ const Dispatch = () => {
 
       <Modal isOpen={formOpen} onClose={() => setFormOpen(false)} title="Add Dispatch" styleClass="w-full">
         <AddDispatchForm onSubmitDispatch={handleSubmitDispatch} dispatchDetails={[]} />
+      </Modal>
+
+      {/* Covering a note, over the list rather than instead of it. */}
+      <Modal
+        isOpen={Boolean(covering)}
+        onClose={() => setCovering(null)}
+        title={`Cover ${covering?.deliveryTo?.name || 'this note'}`}
+        styleClass="w-full max-w-[1060px]"
+      >
+        {covering && (
+          <CoverNote
+            dispatchId={covering._id}
+            onClose={(then) => {
+              const note = covering
+              setCovering(null)
+              if (then === 'load') setVehicleFor(note)
+            }}
+            onChanged={() => setReloadToken((token) => token + 1)}
+          />
+        )}
       </Modal>
 
       {/* Undoing a stage: what it means, before it happens. */}
