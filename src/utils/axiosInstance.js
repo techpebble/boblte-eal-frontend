@@ -6,7 +6,11 @@ const axiosInstance = axios.create({
     timeout: 10000,
     headers: {
         "Content-Type": "application/json",
-        Accept: "application/json"
+        Accept: "application/json",
+        // The API turns away clients that do not say which build they are, to
+        // keep an out-of-date mobile app from writing records. A browser has no
+        // build number, so the web app identifies itself instead.
+        "X-Client": "web"
     }
 });
 
