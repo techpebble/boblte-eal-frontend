@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import { LuCircle, LuX } from 'react-icons/lu'
 import SerialRange from '../Dashboard/SerialRange'
 import { SkeletonLines } from '../Dashboard/Skeleton'
-import { CheckIcon, TruckIcon } from '../Dashboard/icons'
+import { CheckIcon, LockIcon, TruckIcon } from '../Dashboard/icons'
 import EmptyState from '../Dashboard/EmptyState'
 import { formatQuantity, itemLabel } from '../Dashboard/dashboardFormat'
 import axiosInstance from '../../utils/axiosInstance'
@@ -27,6 +27,14 @@ const tenDigits = (value) => /^\d{10}$/.test(String(value ?? '').trim())
 /** The rail holds items, and one entry that is not an item. */
 const LOAD_PANE = '__load__'
 
+/**
+ * Up to and including Final the vehicle is a plan. From Loaded on it is a
+ * record of what actually carried the load, which the excise paperwork is
+ * written from, so it reads back instead of being edited. The server refuses
+ * a change past this point too; this is only the screen agreeing with it.
+ */
+const VEHICLE_EDITABLE_STAGES = ['draft', 'final']
+
 const emptyVehicle = { vehicleNumber: '', driverName: '', driverContact: '' }
 
 /**
@@ -39,6 +47,7 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
   const { user } = useContext(UserContext)
   const mayLink = can(user, 'dispatch:link')
   const mayStatus = can(user, 'dispatch:status')
+  const mayReverse = can(user, 'dispatch:reverse')
 
   const [note, setNote] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -99,6 +108,8 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
   }, [storedNumber, storedDriver, storedContact])
 
   const hasVehicle = storedNumber.trim().length > 0
+  const vehicleFrozen = !VEHICLE_EDITABLE_STAGES.includes(note?.status)
+  const mayEditVehicle = mayStatus && !vehicleFrozen
   const vehicleEdited =
     vehicle.vehicleNumber !== storedNumber ||
     vehicle.driverName !== storedDriver ||
@@ -201,7 +212,7 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
       setTouched(true)
       toast.success(body.vehicleNumber ? 'Vehicle saved' : 'Vehicle cleared')
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Could not save the vehicle.')
+      toast.error(err?.response?.data?.error || err?.response?.data?.message || 'Could not save the vehicle.')
     } finally {
       setBusy(false)
     }
@@ -342,10 +353,14 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
             })}
           </ul>
 
-          {/* Not an item, but the other thing the note is waiting for, and
-              the reason a second dialog used to open on top of this one. */}
-          <div className="shrink-0 border-t border-[#E3E2DE] p-2">
-            <p className="m-0 px-1 pt-1 pb-1.5 text-[10.5px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase">
+          {/* Not an item, and no longer dressed as one. The items are the
+              cargo; this is what carries it. A rule and a grey label put it
+              in the same breath as a thirteenth item, so it gets a cooler
+              tray of its own — and stays pinned at the foot of the rail
+              rather than scrolling away under twelve of them. */}
+          <div className="shrink-0 border-t border-[#D8DFE8] bg-[#E9EDF2] p-2">
+            <p className="m-0 flex items-center gap-1.5 px-1 pt-0.5 pb-2 text-[10.5px] font-semibold tracking-[0.07em] text-[#3C5069] uppercase">
+              <TruckIcon size={13} strokeWidth={1.9} />
               The load
             </p>
             <button
@@ -353,7 +368,7 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
               aria-pressed={onLoadPane}
               onClick={() => setFocusedId(LOAD_PANE)}
               className={`block w-full cursor-pointer rounded-[9px] border px-[11px] py-2.5 text-left ${
-                onLoadPane ? 'border-[#15594A] bg-white' : 'border-[#E3E2DE] bg-transparent hover:bg-white'
+                onLoadPane ? 'border-[#15594A] bg-white' : 'border-[#CFD8E3] bg-transparent hover:bg-white'
               }`}
             >
               <span className="flex items-start gap-2">
@@ -384,7 +399,7 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
                 </p>
               </div>
 
-              {mayStatus ? (
+              {mayEditVehicle ? (
                 <form
                   className="overflow-hidden rounded-[11px] border border-[#E3E2DE] bg-white"
                   onSubmit={(event) => { event.preventDefault(); saveVehicle() }}
@@ -463,8 +478,21 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
                     <dt className="m-0 text-[#5A636D]">Driver contact</dt>
                     <dd className="font-numeric m-0 tabular-nums">{storedContact || '—'}</dd>
                   </dl>
-                  <p className="m-0 border-t border-[#EDECE8] bg-[#FAFAF8] px-[15px] py-2.5 text-[11.5px] text-[#5A636D]">
-                    Your role can see the vehicle on this note but not change it.
+                  <p className="m-0 flex items-start gap-[7px] border-t border-[#E4E9F0] bg-[#EEF2F7] px-[15px] py-2.5 text-[11.5px] text-[#3C5069]">
+                    <span className="mt-px shrink-0">
+                      <LockIcon size={13} strokeWidth={1.9} />
+                    </span>
+                    <span>
+                      {vehicleFrozen
+                        ? <>
+                            This note is {note.status}. The vehicle was recorded as it went, so it is
+                            part of the record now.
+                            {note.status === 'loaded' && mayReverse
+                              ? ' Send the note back to Final to change it.'
+                              : ''}
+                          </>
+                        : 'Your role can see the vehicle on this note but not change it.'}
+                    </span>
                   </p>
                 </div>
               )}

@@ -175,7 +175,7 @@ const DispatchNote = () => {
       setVehicleData({ vehicleNumber: '', driverName: '', driverContact: '' })
       await load()
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Error submitting vehicle info')
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Error submitting vehicle info')
     } finally {
       setBusy(false)
     }
@@ -278,7 +278,16 @@ const DispatchNote = () => {
         title: 'Every case carries a serial range',
         detail: 'Record the vehicle to mark this note loaded.',
         progress: { done, total, pct: 100 },
-        action: mayStatus ? actionButton('Mark loaded', () => setVehicleOpen(true)) : null
+        action: mayStatus
+          ? actionButton('Mark loaded', () => {
+              setVehicleData({
+                vehicleNumber: note.vehicleDetails?.vehicleNumber || '',
+                driverName: note.vehicleDetails?.driverName || '',
+                driverContact: note.vehicleDetails?.driverContact || ''
+              })
+              setVehicleOpen(true)
+            })
+          : null
       }
     }
 

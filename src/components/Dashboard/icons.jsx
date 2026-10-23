@@ -32,6 +32,7 @@ export const AlertIcon = (props) => (
 );
 export const CalendarIcon = (props) => <Icon {...props} d="M5 5h14v15H5zM5 9h14M9 3v4M15 3v4" />;
 export const CheckIcon = (props) => <Icon {...props} d="m4 13 5 5L20 7" />;
+export const LockIcon = (props) => <Icon {...props} d="M7 11V7a5 5 0 0 1 10 0v4M5 11h14v10H5z" />;
 export const RefreshIcon = (props) => (
   <Icon {...props} d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
 );

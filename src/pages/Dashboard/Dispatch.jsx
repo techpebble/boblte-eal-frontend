@@ -402,7 +402,7 @@ const Dispatch = () => {
       setVehicleData({ vehicleNumber: '', driverName: '', driverContact: '' })
       setReloadToken((token) => token + 1)
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Error submitting vehicle info')
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Error submitting vehicle info')
     } finally {
       setBusy(false)
     }
@@ -851,7 +851,9 @@ const Dispatch = () => {
                                   onClick={() => { setOpenMenu(null); setCovering(note) }}
                                   className="w-full cursor-pointer rounded-[7px] border-0 bg-transparent px-[9px] py-[7px] text-left text-[12.5px] text-[#15181C] hover:bg-[#F2F1ED]"
                                 >
-                                  Cover this note
+                                  {note.status === 'draft' || note.status === 'final'
+                                    ? 'Cover this note'
+                                    : 'Ranges and vehicle'}
                                 </button>
                                 <button
                                   type="button"
