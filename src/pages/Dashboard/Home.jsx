@@ -102,7 +102,7 @@ const Home = () => {
               <CalendarIcon size={15} strokeWidth={1.8} />
             </span>
             <span className="font-numeric tabular-nums">
-              {period ? formatPeriod(period.startDate, period.endDate) : 'Month to date'}
+              {period ? formatPeriod(period.startDate, period.endDate) : 'Today'}
             </span>
           </span>
         </div>

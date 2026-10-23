@@ -96,6 +96,11 @@ export const formatPeriod = (startDate, endDate) => {
   const sameYear = start.getFullYear() === end.getFullYear();
   const sameMonth = sameYear && start.getMonth() === end.getMonth();
 
+  // One day is a day, not a span from itself to itself.
+  if (sameMonth && start.getDate() === end.getDate()) {
+    return `${end.getDate()} ${MONTHS[end.getMonth()]} ${end.getFullYear()}`;
+  }
+
   const left = sameMonth
     ? `${start.getDate()}`
     : `${start.getDate()} ${MONTHS[start.getMonth()]}${sameYear ? '' : ` ${start.getFullYear()}`}`;
