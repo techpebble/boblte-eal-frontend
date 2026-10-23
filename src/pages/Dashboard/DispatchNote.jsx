@@ -41,6 +41,8 @@ const DispatchNote = () => {
   const mayDelete = can(user, 'dispatch:delete')
   const mayStatus = can(user, 'dispatch:status')
   const mayLink = can(user, 'dispatch:link')
+  // Undoing a stage is a supervisor's call, kept apart from moving one along.
+  const mayReverse = can(user, 'dispatch:reverse')
 
   const [note, setNote] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -302,7 +304,7 @@ const DispatchNote = () => {
   }
 
   // The one step back this stage allows, if any.
-  const back = note ? movesFor(note).find((move) => move.back) : null
+  const back = note ? movesFor(note, { mayReverse }).find((move) => move.back) : null
 
   const step = nextStep()
   const stepTone = {

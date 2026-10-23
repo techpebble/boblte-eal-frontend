@@ -56,8 +56,12 @@ const LABEL = {
  * The moves on offer for one note, in the order they should be shown. Each
  * carries whether it can be taken now, and when it cannot, the reason — which
  * is the same reason the server would give.
+ *
+ * `mayReverse` is the dispatch:reverse permission. Without it the step back is
+ * left out rather than shown greyed: it is not a thing this person can do at
+ * all, so it is not a thing they need to see.
  */
-export const movesFor = (note) => {
+export const movesFor = (note, { mayReverse = false } = {}) => {
   const from = String(note?.status ?? '').toLowerCase()
   const moves = []
 
@@ -81,7 +85,7 @@ export const movesFor = (note) => {
 
   // One step back. Going back to draft is the only one the server guards,
   // because it reopens the lines themselves.
-  const backward = BACKWARD[from]
+  const backward = mayReverse ? BACKWARD[from] : null
   if (backward) {
     const linked = backward === 'draft' && linkedCases(note) > 0
     moves.push({

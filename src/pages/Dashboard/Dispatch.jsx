@@ -73,6 +73,8 @@ const Dispatch = () => {
   const mayEdit = can(user, 'dispatch:edit')
   const mayDelete = can(user, 'dispatch:delete')
   const mayStatus = can(user, 'dispatch:status')
+  // Undoing a stage is a supervisor's call, kept apart from moving one along.
+  const mayReverse = can(user, 'dispatch:reverse')
 
   const [dispatches, setDispatches] = useState([])
   const [loading, setLoading] = useState(true)
@@ -585,7 +587,7 @@ const Dispatch = () => {
                       const pct = total > 0 ? Math.min(100, (done / total) * 100) : 0
                       const chosen = selected.has(note._id)
                       const tone = statusStyle(note.status)
-                      const moves = mayStatus ? movesFor(note) : []
+                      const moves = mayStatus ? movesFor(note, { mayReverse }) : []
                       const statusOpen = openMenu?.id === note._id && openMenu.kind === 'status'
                       const moreOpen = openMenu?.id === note._id && openMenu.kind === 'more'
 
