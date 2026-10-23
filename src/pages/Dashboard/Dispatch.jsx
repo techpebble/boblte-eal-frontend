@@ -8,6 +8,7 @@ import DateRangeModal from '../../components/Modal/DateRangeModal'
 import AddDispatchForm from '../../components/Dispatch/AddDispatchForm'
 import CoverNote from '../../components/Dispatch/CoverNote'
 import EmptyState from '../../components/Dashboard/EmptyState'
+import AnchoredMenu from '../../components/Dashboard/AnchoredMenu'
 import { SkeletonTableRows } from '../../components/Dashboard/Skeleton'
 import { TruckIcon } from '../../components/Dashboard/icons'
 import { formatQuantity, shortReference, statusStyle } from '../../components/Dashboard/dashboardFormat'
@@ -92,7 +93,7 @@ const Dispatch = () => {
   const [companies, setCompanies] = useState([])
 
   const [selected, setSelected] = useState(() => new Set())
-  const [openMenu, setOpenMenu] = useState(null) // { id, kind: 'status' | 'more' }
+  const [openMenu, setOpenMenu] = useState(null) // { id, kind, anchor }
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
 
@@ -148,14 +149,17 @@ const Dispatch = () => {
     run()
   }, [])
 
-  // A click anywhere else closes whichever menu is open.
+  // A click anywhere else closes whichever menu is open. The menu itself is
+  // drawn at the end of the document, not inside the row, so "elsewhere" is
+  // decided by the data-menu mark rather than by where the table is.
   useEffect(() => {
     if (!openMenu) return undefined
     const close = (event) => {
-      if (event.type === 'keydown' && event.key !== 'Escape') return
-      if (event.type === 'mousedown' && tableRef.current?.contains(event.target)) {
-        if (event.target.closest('[data-menu]')) return
+      if (event.type === 'keydown') {
+        if (event.key === 'Escape') setOpenMenu(null)
+        return
       }
+      if (event.target?.closest?.('[data-menu]')) return
       setOpenMenu(null)
     }
     document.addEventListener('mousedown', close)
@@ -654,7 +658,11 @@ const Dispatch = () => {
                               aria-haspopup={moves.length > 0 ? 'menu' : undefined}
                               aria-expanded={statusOpen}
                               disabled={moves.length === 0}
-                              onClick={() => setOpenMenu(statusOpen ? null : { id: note._id, kind: 'status' })}
+                              onClick={({ currentTarget }) => setOpenMenu(
+                                statusOpen
+                                  ? null
+                                  : { id: note._id, kind: 'status', anchor: currentTarget.getBoundingClientRect() }
+                              )}
                               className={`inline-flex h-6 items-center gap-1.5 rounded-md border py-0 pr-1.5 pl-2 text-[10.5px] font-semibold whitespace-nowrap ${
                                 moves.length > 0 ? 'cursor-pointer' : 'cursor-default'
                               }`}
@@ -669,9 +677,11 @@ const Dispatch = () => {
                             </button>
 
                             {statusOpen && (
-                              <div
+                              <AnchoredMenu
                                 role="menu"
-                                className="absolute top-[calc(100%-4px)] left-3 z-20 w-[244px] rounded-[10px] border border-[#E3E2DE] bg-white p-[5px] text-left shadow-[0_10px_26px_rgba(21,24,28,0.13)]"
+                                anchor={openMenu.anchor}
+                                width={244}
+                                onClose={() => setOpenMenu(null)}
                               >
                                 <p className="m-0 px-[9px] pt-[7px] pb-[5px] text-[10px] font-semibold tracking-[0.08em] text-[#8A919B] uppercase">
                                   Move this note on
@@ -716,7 +726,7 @@ const Dispatch = () => {
                                   </button>
                                   </React.Fragment>
                                 ))}
-                              </div>
+                              </AnchoredMenu>
                             )}
                           </td>
 
@@ -753,15 +763,22 @@ const Dispatch = () => {
                               aria-haspopup="menu"
                               aria-expanded={moreOpen}
                               aria-label={`More for ${note.deliveryTo?.name || 'this note'}`}
-                              onClick={() => setOpenMenu(moreOpen ? null : { id: note._id, kind: 'more' })}
+                              onClick={({ currentTarget }) => setOpenMenu(
+                                moreOpen
+                                  ? null
+                                  : { id: note._id, kind: 'more', anchor: currentTarget.getBoundingClientRect() }
+                              )}
                               className="inline-flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-[7px] border border-[#E3E2DE] bg-white text-[#5A636D] hover:bg-[#F2F1ED]"
                             >
                               <LuEllipsis />
                             </button>
                             {moreOpen && (
-                              <div
+                              <AnchoredMenu
                                 role="menu"
-                                className="absolute top-[calc(100%-4px)] right-4 z-20 w-[188px] rounded-[10px] border border-[#E3E2DE] bg-white p-[5px] text-left shadow-[0_10px_26px_rgba(21,24,28,0.13)]"
+                                anchor={openMenu.anchor}
+                                width={188}
+                                align="right"
+                                onClose={() => setOpenMenu(null)}
                               >
                                 <button
                                   type="button"
@@ -792,7 +809,7 @@ const Dispatch = () => {
                                     Delete this draft
                                   </button>
                                 )}
-                              </div>
+                              </AnchoredMenu>
                             )}
                           </td>
                         </tr>
