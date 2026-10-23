@@ -38,9 +38,11 @@ const statusOf = (entry) => {
   return 'part-dispatched'
 }
 
-const monthToDate = () => {
+/** Today. The day's own work is what these pages are opened for; a wider
+    window is a question you ask, not the one you start with. */
+const today = () => {
   const now = new Date()
-  return { startDate: new Date(now.getFullYear(), now.getMonth(), 1), endDate: now, key: 'selection' }
+  return { startDate: now, endDate: now, key: 'selection' }
 }
 
 const EALUsage = () => {
@@ -55,7 +57,7 @@ const EALUsage = () => {
 
   // Company and market narrow the query itself; item is not a filter the API
   // takes, so it is applied to the rows that come back.
-  const [dateRange, setDateRange] = useState(monthToDate)
+  const [dateRange, setDateRange] = useState(today)
   const [company, setCompany] = useState('')
   const [market, setMarket] = useState('')
   const [item, setItem] = useState('')

@@ -32,9 +32,11 @@ const headerCell =
   'bg-[#FAFAF8] px-3 pt-[11px] pb-2.5 text-left text-[11px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase whitespace-nowrap'
 const bodyCell = 'border-t border-[#EDECE8] px-3 py-2.5 text-[13px] text-[#2A2F36]'
 
-const monthToDate = () => {
+/** Today. The day's own work is what these pages are opened for; a wider
+    window is a question you ask, not the one you start with. */
+const today = () => {
   const now = new Date()
-  return { startDate: new Date(now.getFullYear(), now.getMonth(), 1), endDate: now, key: 'selection' }
+  return { startDate: now, endDate: now, key: 'selection' }
 }
 
 /**
@@ -81,7 +83,7 @@ const Dispatch = () => {
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
 
-  const [dateRange, setDateRange] = useState(monthToDate)
+  const [dateRange, setDateRange] = useState(today)
   const [company, setCompany] = useState('')
   const [market, setMarket] = useState('')
   const [search, setSearch] = useState('')

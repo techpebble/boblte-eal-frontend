@@ -18,11 +18,23 @@ const shortRange = (start, end) => {
   const thisYear = new Date().getFullYear();
   const sameYear = from.getFullYear() === to.getFullYear();
   const sameMonth = sameYear && from.getMonth() === to.getMonth();
+  const sameDay = sameMonth && from.getDate() === to.getDate();
   const month = (date) => date.toLocaleDateString('en-IN', { month: 'short' });
   const tail = sameYear && to.getFullYear() === thisYear ? '' : ` ${to.getFullYear()}`;
 
+  // One day is a day, not a range from itself to itself.
+  if (sameDay) return `${to.getDate()} ${month(to)}${tail}`;
   if (sameMonth) return `${from.getDate()}–${to.getDate()} ${month(to)}${tail}`;
   return `${from.getDate()} ${month(from)} – ${to.getDate()} ${month(to)}${tail}`;
+};
+
+/** The same thought at full length, for the wider button. */
+const fullRange = (start, end) => {
+  const from = new Date(start);
+  const to = new Date(end);
+  if (Number.isNaN(from.valueOf()) || Number.isNaN(to.valueOf())) return '—';
+  if (from.toDateString() === to.toDateString()) return formatDate(to);
+  return `${formatDate(from)} – ${formatDate(to)}`;
 };
 
 const DateRangeModal = ({
@@ -60,7 +72,7 @@ const DateRangeModal = ({
             {shortRange(dateRange?.startDate, dateRange?.endDate)}
           </span>
         ) : (
-          <span className="font-numeric tabular-nums">{formatDate(dateRange?.startDate) + ' – ' + formatDate(dateRange?.endDate)}</span>
+          <span className="font-numeric tabular-nums">{fullRange(dateRange?.startDate, dateRange?.endDate)}</span>
         )}
       </button>
 
