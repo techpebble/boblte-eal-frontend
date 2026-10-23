@@ -1,436 +1,409 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { LuPrinter, LuSearch } from 'react-icons/lu'
-import { useSearchParams } from 'react-router-dom'
+import React, { useCallback, useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { LuCircle, LuSearch, LuTriangleAlert } from 'react-icons/lu'
 import DashboardLayout from '../../components/layouts/DashboardLayout'
 import EmptyState from '../../components/Dashboard/EmptyState'
-import SerialRange from '../../components/Dashboard/SerialRange'
-import StatusPill from '../../components/Dashboard/StatusPill'
 import { SkeletonLines } from '../../components/Dashboard/Skeleton'
-import { TagIcon } from '../../components/Dashboard/icons'
-import {
-    formatQuantity,
-    itemLabel,
-    marketStyle,
-    padSerial,
-    shortReference
-} from '../../components/Dashboard/dashboardFormat'
+import { CheckIcon, TagIcon, TruckIcon } from '../../components/Dashboard/icons'
+import { formatQuantity, itemLabel, marketStyle, padSerial } from '../../components/Dashboard/dashboardFormat'
 import axiosInstance from '../../utils/axiosInstance'
 import { API_PATHS } from '../../utils/apiPaths'
 import { formatDate } from '../../utils/helper'
 
 const nameOf = (ref) => (ref && typeof ref === 'object' ? ref.name : null)
 
+/** Where the label is now, in the words someone would use out loud. */
+const STATE = {
+  'on-hand': { label: 'On hand, not yet applied', fg: '#8A5A00', bg: '#FBF1DC', Icon: TagIcon },
+  applied: { label: 'Applied in production, not yet dispatched', fg: '#0D3C32', bg: '#E7F0EC', Icon: TagIcon },
+  linked: { label: 'On a lorry, not yet delivered', fg: '#0D3C32', bg: '#E7F0EC', Icon: TruckIcon },
+  'in-transit': { label: 'On the road', fg: '#1D4E89', bg: '#E8EFF8', Icon: TruckIcon },
+  delivered: { label: 'Delivered to the depot', fg: '#3C434B', bg: '#EDEFF2', Icon: CheckIcon }
+}
+
+const serialSpan = (prefix, from, to) =>
+  `${prefix} ${padSerial(from)} → ${padSerial(to)}`
+
 const FindEAL = () => {
-    const [ealNumber, setEalNumber] = useState('')
-    const [company, setCompany] = useState('')
-    const [market, setMarket] = useState('')
-    const [pack, setPack] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [ealNumber, setEalNumber] = useState(searchParams.get('eal') || '')
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState(null)
 
-    const [companies, setCompanies] = useState([])
-    const [packs, setPacks] = useState([])
+  const run = useCallback(async (value, issuanceId) => {
+    const text = String(value ?? '').trim()
+    if (!text) return
 
-    const [searchParams, setSearchParams] = useSearchParams()
-    const [loading, setLoading] = useState(false)
-    const [trace, setTrace] = useState(null)
-    const [notFound, setNotFound] = useState(false)
-    const [error, setError] = useState(null)
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await axiosInstance.get(API_PATHS.EALUSAGE.FIND, {
+        params: { ealNumber: text, ...(issuanceId ? { issuanceId } : {}) }
+      })
+      setResult(response.data)
+    } catch (err) {
+      setResult(null)
+      setError(err?.response?.data?.error || 'Could not trace that EAL.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
-    useEffect(() => {
-        const fetchOptions = async () => {
-            try {
-                const [companyRes, packRes] = await Promise.all([
-                    axiosInstance.get(API_PATHS.COMPANY.GET_DATA),
-                    axiosInstance.get(API_PATHS.PACK.GET_DATA)
-                ])
-                setCompanies(companyRes.data?.data || companyRes.data || [])
-                setPacks(packRes.data?.data || packRes.data || [])
-            } catch (err) {
-                console.error('Could not load the filter options.', err)
-            }
-        }
-        fetchOptions()
-    }, [])
+  // A serial in the address bar traces on arrival, so a link to a label works.
+  useEffect(() => {
+    const fromUrl = searchParams.get('eal')
+    if (fromUrl) run(fromUrl, searchParams.get('issuance') || undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-    const reset = () => {
-        setEalNumber('')
-        setCompany('')
-        setMarket('')
-        setPack('')
-        setTrace(null)
-        setNotFound(false)
-        setError(null)
+  const submit = (event) => {
+    event.preventDefault()
+    const text = ealNumber.trim()
+    if (!text) return
+    setSearchParams({ eal: text })
+    run(text)
+  }
+
+  const choose = (candidate) => {
+    setSearchParams({ eal: ealNumber.trim(), issuance: candidate.id })
+    run(ealNumber, candidate.id)
+  }
+
+  const trace = result && !result.needsChoice ? result : null
+  const choices = result?.needsChoice ? result.candidates : []
+  const state = trace ? STATE[trace.state] || STATE['on-hand'] : null
+
+  /** Issued → applied → dispatched → delivered, each read from the one before. */
+  const steps = () => {
+    if (!trace) return []
+    const list = []
+    const issuance = trace.issuance
+
+    list.push({
+      key: 'issued',
+      done: true,
+      title: 'Issued by the excise department',
+      when: formatDate(issuance.dateIssued),
+      detail: `${formatQuantity(issuance.issuedQuantity)} labels${
+        issuance.createdBy?.fullName ? `, received by ${issuance.createdBy.fullName}` : ''
+      }. ${
+        issuance.balanceQuantity > 0
+          ? `${formatQuantity(issuance.balanceQuantity)} of them are still on hand.`
+          : 'Nothing of this issuance is left on hand.'
+      }`,
+      range: serialSpan(issuance.prefix, issuance.serialFrom, issuance.serialTo),
+      to: '/eal-issuance',
+      link: 'Open EAL Issuance'
+    })
+
+    if (trace.usage.length === 0) {
+      list.push({
+        key: 'applied',
+        done: false,
+        title: 'Applied in production',
+        when: 'not yet',
+        detail: 'This label has not been recorded against a production run.'
+      })
+      return list
     }
 
-    const runTrace = useCallback(async (serial) => {
-        if (!serial.trim()) {
-            setError('Enter an EAL serial to trace.')
-            return
-        }
+    trace.usage.forEach((entry) => {
+      const perCase = entry.pack?.bottlesPerCase
+      list.push({
+        key: `usage-${entry.id}`,
+        done: true,
+        title: 'Applied in production',
+        when: formatDate(entry.dateUsed),
+        detail: `${itemLabel(entry.item) || 'Item not named'} — ${formatQuantity(entry.usedQuantityInCases)} cases${
+          perCase ? ` of ${formatQuantity(perCase)}` : ''
+        }${entry.createdBy?.fullName ? `, recorded by ${entry.createdBy.fullName}` : ''}.`,
+        range: serialSpan(entry.prefix, entry.serialFrom, entry.serialTo),
+        to: '/eal-usage',
+        link: 'Open EAL Usage'
+      })
+    })
 
-        setLoading(true)
-        setError(null)
-        setNotFound(false)
-        setTrace(null)
-
-        try {
-            const res = await axiosInstance.get(API_PATHS.EALUSAGE.FIND, {
-                params: {
-                    ealNumber: serial.trim(),
-                    ...(company ? { company } : {}),
-                    ...(market ? { market } : {}),
-                    ...(pack ? { pack } : {})
-                }
-            })
-            setTrace(res.data?.respondData || null)
-        } catch (err) {
-            console.error('FindEAL error', err)
-            if (err.response?.status === 404) setNotFound(true)
-            else setError(err.response?.data?.error || err.message || 'Could not trace that label.')
-        } finally {
-            setLoading(false)
-        }
-    }, [company, market, pack])
-
-    const onSearch = (event) => {
-        if (event) event.preventDefault()
-        runTrace(ealNumber)
+    if (trace.ealDispatches.length === 0) {
+      list.push({
+        key: 'dispatched',
+        done: false,
+        title: 'Linked to a dispatch note',
+        when: 'not yet',
+        detail: 'These cases are in finished stock. No dispatch note carries them.'
+      })
+      return list
     }
 
-    // A serial handed over by the header search is traced on arrival, then
-    // dropped from the address so a reload does not repeat it.
-    useEffect(() => {
-        const handed = searchParams.get('serial')
-        if (!handed) return
+    trace.ealDispatches.forEach((entry) => {
+      const note = entry.note
+      const vehicle = note?.vehicleDetails?.vehicleNumber
+      list.push({
+        key: `dispatch-${entry.id}`,
+        done: true,
+        title: 'Linked to a dispatch note',
+        when: formatDate(entry.dateDispatched),
+        detail: `${nameOf(note?.deliveryTo) || 'Depot not recorded'}${
+          vehicle ? `. Loaded on ${vehicle}${note?.vehicleDetails?.driverName ? `, driver ${note.vehicleDetails.driverName}` : ''}` : ''
+        }. ${formatQuantity(entry.usedQuantityInCases)} cases.`,
+        range: serialSpan(entry.prefix, entry.serialFrom, entry.serialTo),
+        to: note?._id ? `/dispatch/${note._id}` : '/dispatch',
+        link: 'Open the dispatch note'
+      })
+    })
 
-        setEalNumber(handed)
-        runTrace(handed)
-        setSearchParams({}, { replace: true })
-        // runTrace is stable for a given set of filters, and this should run for
-        // the serial that arrived rather than on every filter change.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [searchParams])
+    const note = trace.ealDispatches[0]?.note
+    list.push({
+      key: 'delivered',
+      done: note?.status === 'delivered',
+      title: 'Delivered to the depot',
+      when: note?.status === 'delivered' ? formatDate(note.dateDispatched) : 'not yet',
+      detail: note?.status === 'delivered'
+        ? 'The depot has confirmed receipt.'
+        : `The note is still marked ${note?.status || 'open'}. It has not been confirmed as delivered.`
+    })
 
-    /**
-     * The API answers with four parallel lists. This folds them into the one
-     * story the page tells: where the label came from and where it went.
-     */
-    const story = useMemo(() => {
-        if (!trace) return null
+    return list
+  }
 
-        const issuance = trace.issuance?.[0] || null
-        const usage = trace.usage?.[0] || null
-        const link = trace.ealDispatches?.[0] || null
-        const note = trace.dispatches?.[0] || null
+  const rows = steps()
 
-        const steps = []
-        if (issuance) {
-            steps.push({
-                title: 'Issued by excise',
-                date: issuance.dateIssued,
-                detail: `${formatQuantity(issuance.issuedQuantity)} labels released${
-                    nameOf(issuance.company) ? ` to ${nameOf(issuance.company)}` : ''
-                }.`,
-                user: issuance.createdBy?.fullName,
-                tone: '#15594A'
-            })
-        }
-        if (usage) {
-            steps.push({
-                title: 'Applied in production',
-                date: usage.dateUsed,
-                detail: `${formatQuantity(usage.usedQuantity)} labels applied${
-                    itemLabel(usage.item) ? ` to ${itemLabel(usage.item)}` : ''
-                }, making ${formatQuantity(usage.usedQuantityInCases)} cases.`,
-                user: usage.createdBy?.fullName,
-                tone: '#15594A'
-            })
-        }
-        if (link) {
-            steps.push({
-                title: 'Linked to a dispatch',
-                date: link.dateDispatched,
-                detail: note
-                    ? `${shortReference(note._id)} · ${nameOf(note.deliveryTo) || 'depot not recorded'}.`
-                    : 'Attached to a dispatch note.',
-                user: link.createdBy?.fullName,
-                tone: '#1D4E89'
-            })
-        }
-        if (note?.status === 'delivered') {
-            steps.push({
-                title: 'Received at depot',
-                date: note.dateDispatched,
-                detail: `${nameOf(note.deliveryTo) || 'Depot'} confirmed delivery.`,
-                tone: '#1D4E89'
-            })
-        }
+  return (
+    <DashboardLayout activeMenu="Find EAL">
+      <div className="mx-auto flex w-full max-w-[980px] flex-col gap-4">
 
-        const status = note?.status === 'delivered'
-            ? 'delivered'
-            : link
-                ? 'linked'
-                : usage
-                    ? 'in-stock'
-                    : 'unused'
+        <div>
+          <h1 className="m-0 text-[25px] font-semibold tracking-[-0.022em]">Find an EAL</h1>
+          <p className="mt-1.5 mb-0 text-[13px] text-[#5A636D]">
+            One label, one answer: where it came from, what it went on, and where it went.
+          </p>
+        </div>
 
-        return {
-            issuance,
-            usage,
-            link,
-            note,
-            steps,
-            status,
-            facts: [
-                { k: 'Company', v: nameOf(issuance?.company) },
-                { k: 'Pack', v: nameOf(issuance?.pack) },
-                { k: 'Market', v: issuance?.market },
-                { k: 'Issued on', v: issuance ? formatDate(issuance.dateIssued) : null },
-                { k: 'Item', v: itemLabel(usage?.item) },
-                { k: 'Applied on', v: usage ? formatDate(usage.dateUsed) : null },
-                { k: 'Dispatch note', v: note ? shortReference(note._id) : null },
-                { k: 'Depot', v: nameOf(note?.deliveryTo) }
-            ]
-        }
-    }, [trace])
+        {/* The serial is the whole query; the prefix is optional, because the
+            next step can sort out what it would have narrowed. */}
+        <form
+          onSubmit={submit}
+          className="flex flex-wrap items-end gap-2.5 rounded-xl border border-[#E3E2DE] bg-white px-[18px] py-4"
+        >
+          <div className="min-w-0 flex-[1_1_320px]">
+            <label htmlFor="eal" className="mb-1.5 block text-xs font-medium text-[#3C434B]">EAL serial</label>
+            <input
+              id="eal"
+              value={ealNumber}
+              onChange={({ target }) => setEalNumber(target.value)}
+              placeholder="NRK2048325000"
+              className="font-numeric h-11 w-full rounded-[10px] border border-[#D7D6D1] bg-white px-3.5 text-[19px] tracking-[0.02em] tabular-nums outline-none focus:border-[#15594A] focus:ring-[3px] focus:ring-[#E7F0EC]"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={loading || !ealNumber.trim()}
+            className="flex h-11 shrink-0 cursor-pointer items-center gap-2 rounded-[10px] border border-[#15594A] bg-[#15594A] px-5 text-[14px] font-semibold text-white hover:bg-[#124C3F] disabled:cursor-not-allowed disabled:border-[#E3E2DE] disabled:bg-[#F2F1ED] disabled:text-[#A8ADB5]"
+          >
+            <LuSearch />
+            {loading ? 'Tracing…' : 'Trace'}
+          </button>
+          <p className="m-0 flex-[1_1_100%] text-[11.5px] text-[#8A919B]">
+            Type the ten digits, with or without the three-letter prefix —{' '}
+            <span className="font-numeric tabular-nums">NRK2048325000</span> or{' '}
+            <span className="font-numeric tabular-nums">2048325000</span>.
+          </p>
+        </form>
 
-    return (
-        <DashboardLayout activeMenu="Find EAL">
-            <div className="mx-auto flex max-w-[1400px] flex-col gap-[18px]">
+        {loading && (
+          <div className="rounded-xl border border-[#E3E2DE] bg-white px-[18px] py-5"><SkeletonLines rows={4} /></div>
+        )}
 
-                <div className="print-hide">
-                    <h1 className="m-0 text-[25px] font-semibold tracking-[-0.022em]">Find EAL</h1>
-                    <p className="mt-1.5 mb-0 text-[13px] text-[#5A636D]">
-                        Trace one label from the excise issuance through production to the
-                        depot that received it.
-                    </p>
-                </div>
+        {!loading && error && (
+          <div className="rounded-xl border border-[#E3E2DE] bg-white px-[18px] py-5">
+            <EmptyState
+              icon={<TagIcon size={26} strokeWidth={1.5} />}
+              title="Nothing holds that serial"
+              description={error}
+            />
+          </div>
+        )}
 
-                {/* Search */}
-                <section className="print-hide rounded-xl border border-[#E3E2DE] bg-white px-[22px] py-5">
-                    <form onSubmit={onSearch} className="flex flex-wrap items-end gap-3">
-                        <div className="min-w-0 flex-[1_1_360px]">
-                            <label htmlFor="eal" className="mb-[7px] block text-xs font-medium text-[#3C434B]">
-                                EAL serial <span className="text-[#9B2C2C]">*</span>
-                            </label>
-                            <div className="flex h-12 items-center gap-2.5 rounded-[10px] border border-[#D7D6D1] bg-white px-3.5 focus-within:border-[#15594A] focus-within:ring-[3px] focus-within:ring-[#E7F0EC]">
-                                <LuSearch className="shrink-0 text-[#8A919B]" />
-                                <input
-                                    id="eal"
-                                    value={ealNumber}
-                                    onChange={({ target }) => { setEalNumber(target.value); setError(null) }}
-                                    placeholder="LBC0004121488"
-                                    className="font-numeric min-w-0 flex-1 border-0 bg-transparent text-[18px] tracking-[0.03em] tabular-nums text-[#15181C] outline-none placeholder:text-[#A8ADB5]"
-                                />
-                                <span className="font-numeric hidden shrink-0 text-[11px] text-[#5A636D] sm:block">
-                                    3 letters + 10 digits
-                                </span>
-                            </div>
-                        </div>
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className="h-12 cursor-pointer rounded-[10px] border border-[#15594A] bg-[#15594A] px-5 text-sm font-semibold text-white hover:bg-[#124C3F] disabled:opacity-60"
-                        >
-                            {loading ? 'Tracing…' : 'Trace label'}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={reset}
-                            className="h-12 cursor-pointer rounded-[10px] border border-[#D7D6D1] bg-white px-4 text-[13.5px] font-medium text-[#2A2F36] hover:bg-[#FAFAF8]"
-                        >
-                            Reset
-                        </button>
-                    </form>
-
-                    <details className="mt-4 border-t border-[#EDECE8] pt-3.5">
-                        <summary className="flex cursor-pointer items-center gap-[7px] text-[12.5px] font-medium text-[#15594A]">
-                            Narrow the search
-                            <span className="font-normal text-[#5A636D]">
-                                — optional, when the serial is partly unreadable
-                            </span>
-                        </summary>
-                        <div className="mt-3.5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                            <div>
-                                <label htmlFor="s-co" className="mb-1.5 block text-xs font-medium text-[#3C434B]">Company</label>
-                                <select
-                                    id="s-co"
-                                    value={company}
-                                    onChange={({ target }) => setCompany(target.value)}
-                                    className="h-9 w-full cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-[11px] text-[13px]"
-                                >
-                                    <option value="">Any company</option>
-                                    {companies.map((option) => (
-                                        <option key={option._id} value={option._id}>{option.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label htmlFor="s-mkt" className="mb-1.5 block text-xs font-medium text-[#3C434B]">Market</label>
-                                <select
-                                    id="s-mkt"
-                                    value={market}
-                                    onChange={({ target }) => setMarket(target.value)}
-                                    className="h-9 w-full cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-[11px] text-[13px]"
-                                >
-                                    <option value="">Any market</option>
-                                    <option value="local">Local</option>
-                                    <option value="export">Export</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label htmlFor="s-pack" className="mb-1.5 block text-xs font-medium text-[#3C434B]">Pack</label>
-                                <select
-                                    id="s-pack"
-                                    value={pack}
-                                    onChange={({ target }) => setPack(target.value)}
-                                    className="h-9 w-full cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-[11px] text-[13px]"
-                                >
-                                    <option value="">Any pack</option>
-                                    {packs.map((option) => (
-                                        <option key={option._id} value={option._id}>{option.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-                    </details>
-                </section>
-
-                {error && (
-                    <p role="alert" className="print-hide m-0 rounded-[10px] border border-[#F3C9C7] bg-[#FCEBEA] px-4 py-3 text-[13px] text-[#7A2322]">
-                        {error}
-                    </p>
-                )}
-
-                {loading && (
-                    <div className="rounded-xl border border-[#E3E2DE] bg-white px-[22px] py-5">
-                        <SkeletonLines rows={4} />
-                    </div>
-                )}
-
-                {notFound && !loading && (
-                    <div className="rounded-xl border border-[#E3E2DE] bg-white px-[18px] py-5">
-                        <EmptyState
-                            title="No issuance covers that serial"
-                            description="Check the prefix and the ten digits. A label can only be traced once the issuance that contains it has been recorded."
-                        />
-                    </div>
-                )}
-
-                {/* Trace */}
-                {story && !loading && (
-                    <section className="overflow-hidden rounded-xl border border-[#E3E2DE] bg-white">
-                        <div className="flex flex-wrap items-center gap-3.5 border-b border-[#EDECE8] px-[22px] py-[18px]">
-                            <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] bg-[#E7F0EC] text-[#15594A]">
-                                <TagIcon size={20} strokeWidth={1.9} />
-                            </span>
-                            <div className="min-w-0 flex-[1_1_300px]">
-                                <h2 className="font-numeric m-0 text-[19px] font-semibold tracking-[-0.015em] tabular-nums">
-                                    <span className="text-[#8A919B]">{trace.prefix}</span>
-                                    <span>{padSerial(trace.serial)}</span>
-                                </h2>
-                                <p className="mt-1 mb-0 flex flex-wrap items-center gap-2 text-[12.5px] text-[#5A636D]">
-                                    {story.issuance?.market && (
-                                        <span
-                                            className="inline-block rounded-[5px] px-2 py-[3px] text-[11px] font-semibold"
-                                            style={{
-                                                color: marketStyle(story.issuance.market).fg,
-                                                backgroundColor: marketStyle(story.issuance.market).bg
-                                            }}
-                                        >
-                                            {marketStyle(story.issuance.market).label}
-                                        </span>
-                                    )}
-                                    <span>
-                                        Within{' '}
-                                        <SerialRange
-                                            prefix={story.issuance?.prefix}
-                                            serialFrom={story.issuance?.serialFrom}
-                                            serialTo={story.issuance?.serialTo}
-                                        />
-                                    </span>
-                                </p>
-                            </div>
-                            <StatusPill status={story.status} />
-                            <button
-                                type="button"
-                                onClick={() => window.print()}
-                                className="print-hide flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border border-[#D7D6D1] bg-white px-[13px] text-[13px] font-medium text-[#2A2F36] hover:bg-[#FAFAF8]"
-                            >
-                                <LuPrinter />
-                                Print trace
-                            </button>
-                        </div>
-
-                        {/* Facts */}
-                        <dl className="m-0 grid grid-cols-2 border-b border-[#EDECE8] lg:grid-cols-4">
-                            {story.facts.map((fact) => (
-                                <div key={fact.k} className="border-t border-r border-[#F3F2EF] px-[22px] py-3.5">
-                                    <dt className="mb-1.5 text-[10.5px] font-semibold tracking-[0.08em] text-[#5A636D] uppercase">
-                                        {fact.k}
-                                    </dt>
-                                    <dd className="font-numeric m-0 truncate text-[13.5px] text-[#15181C] capitalize" title={fact.v || undefined}>
-                                        {fact.v || '—'}
-                                    </dd>
-                                </div>
-                            ))}
-                        </dl>
-
-                        {/* Chain of custody */}
-                        <div className="px-[22px] pt-5 pb-[22px]">
-                            <p className="m-0 mb-4 text-[11px] font-semibold tracking-[0.08em] text-[#5A636D] uppercase">
-                                Chain of custody
-                            </p>
-                            <ol className="m-0 flex list-none flex-wrap p-0">
-                                {story.steps.map((step, index) => (
-                                    <li key={step.title} className="min-w-0 flex-[1_1_220px] pr-5">
-                                        <span className="flex items-center">
-                                            <span
-                                                className="h-[13px] w-[13px] shrink-0 rounded-full"
-                                                style={{ backgroundColor: step.tone, boxShadow: `0 0 0 3px ${step.tone}22` }}
-                                            />
-                                            <span
-                                                className="h-0.5 flex-1"
-                                                style={{
-                                                    backgroundColor:
-                                                        index === story.steps.length - 1 ? 'transparent' : `${step.tone}33`
-                                                }}
-                                            />
-                                        </span>
-                                        <span className="mt-2.5 block">
-                                            <span className="block text-[13.5px] font-semibold text-[#15181C]">{step.title}</span>
-                                            <span className="font-numeric mt-[3px] block text-[11.5px] tabular-nums text-[#5A636D]">
-                                                {step.date ? formatDate(step.date) : '—'}
-                                            </span>
-                                            <span className="mt-1.5 block text-xs leading-[1.5] text-[#4A5159]">{step.detail}</span>
-                                            {step.user && (
-                                                <span className="mt-1 block text-[11px] text-[#8A919B]">Recorded by {step.user}</span>
-                                            )}
-                                        </span>
-                                    </li>
-                                ))}
-                            </ol>
-
-                            {story.steps.length === 1 && (
-                                <p className="m-0 mt-4 rounded-[10px] border border-[#E3E2DE] bg-[#FAFAF8] px-3.5 py-3 text-xs text-[#5A636D]">
-                                    This label has been issued but not yet applied on the line, so the
-                                    trail ends here.
-                                </p>
-                            )}
-                        </div>
-                    </section>
-                )}
-
-                {!story && !loading && !notFound && !error && (
-                    <div className="rounded-xl border border-[#E3E2DE] bg-white px-[18px] py-5">
-                        <EmptyState
-                            title="Trace a label"
-                            description="Type the three-letter prefix and the ten digits printed on the label, then trace it."
-                        />
-                    </div>
-                )}
+        {/* Only when the serial sits in more than one issuance. A prefix is
+            reused across packs and the ranges under it overlap, so the digits
+            alone do not always name one label. */}
+        {!loading && choices.length > 0 && (
+          <section className="overflow-hidden rounded-xl border border-[#EBD9AC] bg-white">
+            <div className="flex flex-wrap items-center gap-3 border-b border-[#EBD9AC] bg-[#FBF1DC] px-[18px] py-3.5">
+              <LuTriangleAlert className="shrink-0 text-[#8A5A00]" />
+              <span className="min-w-0 flex-[1_1_300px] text-[12.5px] text-[#5C3D06]">
+                <strong className="font-semibold text-[#3F2A04]">
+                  {formatQuantity(choices.length)} issuances hold this serial.
+                </strong>{' '}
+                Pick the pack you are holding — the trace changes with it.
+              </span>
             </div>
-        </DashboardLayout>
-    )
+            <div className="flex flex-wrap gap-3 px-[18px] py-3.5">
+              {choices.map((candidate) => {
+                const left = candidate.balanceQuantity > 0
+                return (
+                  <button
+                    key={candidate.id}
+                    type="button"
+                    onClick={() => choose(candidate)}
+                    className="flex min-w-0 flex-[1_1_300px] cursor-pointer flex-col gap-2 rounded-[11px] border border-[#E3E2DE] bg-white px-[15px] py-3.5 text-left hover:border-[#15594A] hover:bg-[#F3F8F6]"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <span className="font-numeric text-[15px] font-semibold tracking-[0.06em] text-[#15181C]">
+                        {candidate.prefix}
+                      </span>
+                      <span className="text-[12.5px] font-semibold text-[#15181C]">
+                        {nameOf(candidate.pack) || 'Pack not named'}
+                      </span>
+                      <span
+                        className="ml-auto rounded-[5px] px-[7px] py-0.5 text-[10.5px] font-semibold"
+                        style={{
+                          color: marketStyle(candidate.market).fg,
+                          backgroundColor: marketStyle(candidate.market).bg
+                        }}
+                      >
+                        {marketStyle(candidate.market).label}
+                      </span>
+                    </span>
+                    <span className="truncate text-[11.5px] text-[#4A5159]">
+                      {nameOf(candidate.company) || '—'} · issued {formatDate(candidate.dateIssued)}
+                    </span>
+                    <span className="font-numeric text-[11.5px] whitespace-nowrap text-[#5A636D] tabular-nums">
+                      {padSerial(candidate.serialFrom)}
+                      <span className="px-1 text-[#C3C2BD]">→</span>
+                      {padSerial(candidate.serialTo)}
+                    </span>
+                    {/* Usually the line that makes the right one obvious. */}
+                    <span
+                      className="flex items-center gap-[7px] text-[11px]"
+                      style={{ color: left ? '#8A5A00' : '#15594A' }}
+                    >
+                      {left ? <LuCircle className="shrink-0" /> : <CheckIcon size={13} strokeWidth={2.3} />}
+                      {left
+                        ? `${formatQuantity(candidate.balanceQuantity)} of ${formatQuantity(candidate.issuedQuantity)} labels still on hand`
+                        : `All ${formatQuantity(candidate.issuedQuantity)} labels applied`}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* One label, one chain. */}
+        {!loading && trace && (
+          <section className="overflow-hidden rounded-xl border border-[#E3E2DE] bg-white">
+            <div className="flex flex-wrap items-center gap-3.5 border-b border-[#EDECE8] px-[18px] py-4">
+              <div className="min-w-0 flex-[1_1_280px]">
+                <h2 className="font-numeric m-0 text-[22px] font-semibold tracking-[0.01em] tabular-nums">
+                  <span className="text-[#8A919B]">{trace.prefix}</span>
+                  {padSerial(trace.serial)}
+                </h2>
+                <p className="mt-1.5 mb-0 text-[12.5px] text-[#5A636D]">
+                  {[
+                    itemLabel(trace.usage[0]?.item),
+                    nameOf(trace.issuance.pack),
+                    nameOf(trace.issuance.company)
+                  ].filter(Boolean).join(' · ')}
+                </p>
+              </div>
+              {state && (
+                <span
+                  className="flex shrink-0 items-center gap-[7px] rounded-[7px] px-3 py-[7px] text-[12px] font-semibold"
+                  style={{ color: state.fg, backgroundColor: state.bg }}
+                >
+                  <state.Icon size={15} strokeWidth={2} />
+                  {state.label}
+                </span>
+              )}
+            </div>
+
+            {/* A way back to the choice, when there was one. */}
+            {trace.candidates?.length > 1 && (
+              <p className="m-0 border-b border-[#EDECE8] bg-[#FAFAF8] px-[18px] py-2.5 text-[11.5px] text-[#5A636D]">
+                {formatQuantity(trace.candidates.length)} issuances hold this serial; showing{' '}
+                <strong className="font-semibold text-[#15181C]">
+                  {trace.prefix} · {nameOf(trace.issuance.pack)}
+                </strong>
+                .{' '}
+                <button
+                  type="button"
+                  onClick={() => setResult({ ...result, needsChoice: true })}
+                  className="cursor-pointer border-0 bg-transparent p-0 text-[11.5px] font-medium text-[#15594A] underline underline-offset-[3px]"
+                >
+                  Pick a different one
+                </button>
+              </p>
+            )}
+
+            <ol className="m-0 list-none px-[18px] pt-1.5 pb-[18px]">
+              {rows.map((step, index) => {
+                const last = index === rows.length - 1
+                return (
+                  <li key={step.key} className="flex gap-3.5 pt-3.5">
+                    <span className="flex w-[26px] shrink-0 flex-col items-center">
+                      <span
+                        className="flex h-[26px] w-[26px] items-center justify-center rounded-full border-2"
+                        style={{
+                          backgroundColor: step.done ? '#E7F0EC' : '#FFFFFF',
+                          borderColor: step.done ? '#15594A' : '#D7D6D1',
+                          color: step.done ? '#15594A' : '#A8ADB5'
+                        }}
+                      >
+                        {step.done ? <CheckIcon size={13} strokeWidth={2.4} /> : <LuCircle className="text-[11px]" />}
+                      </span>
+                      {!last && (
+                        <span
+                          className="min-h-[18px] w-0.5 flex-1"
+                          style={{ backgroundColor: step.done && rows[index + 1]?.done ? '#15594A' : '#EDECE8' }}
+                        />
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1 pb-1">
+                      <span className="flex flex-wrap items-baseline gap-2.5">
+                        <span
+                          className="text-[13.5px] font-semibold tracking-[-0.008em]"
+                          style={{ color: step.done ? '#15181C' : '#8A919B' }}
+                        >
+                          {step.title}
+                        </span>
+                        <span className="font-numeric text-[11.5px] text-[#5A636D] tabular-nums">{step.when}</span>
+                      </span>
+                      <span className="mt-1 block text-[12.5px] text-[#4A5159]">{step.detail}</span>
+                      {(step.range || step.link) && (
+                        <span className="mt-[7px] flex flex-wrap items-center gap-2">
+                          {step.range && (
+                            <span className="font-numeric inline-block rounded-[7px] border border-[#EDECE8] bg-[#FAFAF8] px-2.5 py-1 text-[11.5px] whitespace-nowrap text-[#3C434B] tabular-nums">
+                              {step.range}
+                            </span>
+                          )}
+                          {step.link && (
+                            <Link to={step.to} className="text-[11.5px] font-medium">
+                              {step.link} →
+                            </Link>
+                          )}
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                )
+              })}
+            </ol>
+          </section>
+        )}
+
+        {!loading && !trace && choices.length === 0 && !error && (
+          <div className="rounded-xl border border-[#E3E2DE] bg-white px-[18px] py-5">
+            <EmptyState
+              icon={<TagIcon size={26} strokeWidth={1.5} />}
+              title="Trace a label"
+              description="Type an EAL serial above to see where it came from and where it went."
+            />
+          </div>
+        )}
+      </div>
+    </DashboardLayout>
+  )
 }
 
 export default FindEAL
