@@ -4,11 +4,10 @@ import { LuCopy, LuDownload } from 'react-icons/lu'
 import { SkeletonLines } from '../Dashboard/Skeleton'
 import EmptyState from '../Dashboard/EmptyState'
 import { TruckIcon } from '../Dashboard/icons'
-import { formatQuantity, itemLabel, marketStyle, padSerial, shortReference } from '../Dashboard/dashboardFormat'
+import { formatQuantity, itemLabel, padSerial, shortReference } from '../Dashboard/dashboardFormat'
 import axiosInstance from '../../utils/axiosInstance'
 import { API_PATHS } from '../../utils/apiPaths'
 import { downloadCsv } from '../../utils/exportCsv'
-import { formatDate } from '../../utils/helper'
 
 const headerCell =
   'bg-[#FAFAF8] px-3 pt-[9px] pb-2 text-left text-[10.5px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase whitespace-nowrap'
@@ -145,26 +144,16 @@ const StickerSummary = ({ dispatchId }) => {
   }
 
   return (
-    <div className="flex max-h-[76vh] flex-col gap-3.5">
+    <div className="flex max-h-[76vh] flex-col gap-3">
 
-      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-[#EDECE8] pb-3.5">
-        <div className="min-w-0 flex-[1_1_280px]">
-          <h2 className="m-0 flex flex-wrap items-center gap-2 text-[17px] font-semibold tracking-[-0.016em]">
-            {note.deliveryTo?.name || 'Depot not set'}
-            <span
-              className="rounded-[5px] px-[7px] py-0.5 text-[10.5px] font-semibold"
-              style={{ color: marketStyle(note.market).fg, backgroundColor: marketStyle(note.market).bg }}
-            >
-              {marketStyle(note.market).label}
-            </span>
-          </h2>
-          <p className="mt-1 mb-0 text-[12px] text-[#5A636D]">
-            <span className="font-numeric tabular-nums">{shortReference(note._id)}</span>
-            {' · '}{note.company?.name || '—'}
-            {' · '}<span className="font-numeric tabular-nums">{formatDate(note.dateDispatched)}</span>
-            {note.vehicleDetails?.vehicleNumber && <> · <span className="font-numeric tabular-nums">{note.vehicleDetails.vehicleNumber}</span></>}
-          </p>
-        </div>
+      {/* The dialog chrome carries the note's name, so this is only the work:
+          what to do with the ranges below. */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+        <p className="m-0 min-w-0 flex-[1_1_320px] text-[12px] text-[#5A636D]">
+          {rows.length === 0
+            ? 'Nothing has been linked to this note yet.'
+            : `${formatQuantity(rows.length)} range${rows.length === 1 ? '' : 's'} across ${formatQuantity((note.items || []).length)} item${(note.items || []).length === 1 ? '' : 's'}. Copying gives tab-separated rows, which paste into a spreadsheet or the portal's table as columns.`}
+        </p>
         <div className="flex shrink-0 gap-2">
           <button
             type="button"
@@ -195,12 +184,6 @@ const StickerSummary = ({ dispatchId }) => {
         />
       ) : (
         <>
-          <p className="m-0 shrink-0 text-[12px] text-[#5A636D]">
-            {formatQuantity(rows.length)} range{rows.length === 1 ? '' : 's'} across{' '}
-            {formatQuantity((note.items || []).length)} item{(note.items || []).length === 1 ? '' : 's'}.
-            Copying gives you tab-separated rows, which paste straight into a spreadsheet or the portal's table.
-          </p>
-
           {/* Selectable as well as copyable, for a portal that wants one field
               at a time rather than a pasted block. */}
           <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-[#E3E2DE]">

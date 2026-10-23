@@ -12,7 +12,7 @@ import EmptyState from '../../components/Dashboard/EmptyState'
 import AnchoredMenu from '../../components/Dashboard/AnchoredMenu'
 import { SkeletonTableRows } from '../../components/Dashboard/Skeleton'
 import { TruckIcon } from '../../components/Dashboard/icons'
-import { formatQuantity, shortReference, statusStyle } from '../../components/Dashboard/dashboardFormat'
+import { formatQuantity, marketStyle, shortReference, statusStyle } from '../../components/Dashboard/dashboardFormat'
 import axiosInstance from '../../utils/axiosInstance'
 import { API_PATHS } from '../../utils/apiPaths'
 import { downloadCsv } from '../../utils/exportCsv'
@@ -239,6 +239,35 @@ const Dispatch = () => {
    * covering its cases; after it has gone, the question is what went on it —
    * which is the list the excise portal asks for.
    */
+  /** The dialog chrome's own heading, from the row the list already holds. */
+  const noteHeader = (note) => (
+    <>
+      <h2 className="m-0 flex flex-wrap items-center gap-2 text-[17px] font-semibold tracking-[-0.016em]">
+        {note.deliveryTo?.name || 'Depot not set'}
+        <span
+          className="rounded-[5px] px-[7px] py-0.5 text-[10.5px] font-semibold"
+          style={{ color: statusStyle(note.status).fg, backgroundColor: statusStyle(note.status).bg }}
+        >
+          {statusStyle(note.status).label}
+        </span>
+        <span
+          className="rounded-[5px] px-[7px] py-0.5 text-[10.5px] font-semibold"
+          style={{ color: marketStyle(note.market).fg, backgroundColor: marketStyle(note.market).bg }}
+        >
+          {marketStyle(note.market).label}
+        </span>
+      </h2>
+      <p className="mt-1 mb-0 truncate text-[12px] text-[#5A636D]">
+        <span className="font-numeric tabular-nums">{shortReference(note._id)}</span>
+        {' · '}{note.company?.name || '—'}
+        {' · '}<span className="font-numeric tabular-nums">{formatDate(note.dateDispatched)}</span>
+        {note.vehicleDetails?.vehicleNumber && (
+          <> · <span className="font-numeric tabular-nums">{note.vehicleDetails.vehicleNumber}</span></>
+        )}
+      </p>
+    </>
+  )
+
   const mainAction = (note) =>
     note.status === 'draft' || note.status === 'final'
       ? { label: 'Cover', run: () => setCovering(note) }
@@ -896,7 +925,9 @@ const Dispatch = () => {
         isOpen={Boolean(covering)}
         onClose={() => setCovering(null)}
         title={`Cover ${covering?.deliveryTo?.name || 'this note'}`}
-        styleClass="w-full max-w-[1060px]"
+        header={covering && noteHeader(covering)}
+        flush
+        styleClass="h-[min(880px,92vh)] max-w-[1180px]"
       >
         {covering && (
           <CoverNote
@@ -915,8 +946,9 @@ const Dispatch = () => {
       <Modal
         isOpen={Boolean(summarising)}
         onClose={() => setSummarising(null)}
-        title="Sticker summary"
-        styleClass="w-full max-w-[920px]"
+        title={`Sticker summary · ${summarising?.deliveryTo?.name || ''}`}
+        header={summarising && noteHeader(summarising)}
+        styleClass="max-w-[980px]"
       >
         {summarising && <StickerSummary dispatchId={summarising._id} />}
       </Modal>

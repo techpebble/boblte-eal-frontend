@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { LuCircle, LuX } from 'react-icons/lu'
@@ -6,10 +6,9 @@ import SerialRange from '../Dashboard/SerialRange'
 import { SkeletonLines } from '../Dashboard/Skeleton'
 import { CheckIcon, TruckIcon } from '../Dashboard/icons'
 import EmptyState from '../Dashboard/EmptyState'
-import { formatQuantity, itemLabel, marketStyle, shortReference } from '../Dashboard/dashboardFormat'
+import { formatQuantity, itemLabel } from '../Dashboard/dashboardFormat'
 import axiosInstance from '../../utils/axiosInstance'
 import { API_PATHS } from '../../utils/apiPaths'
-import { formatDate } from '../../utils/helper'
 import { UserContext } from '../../context/userContext'
 import { can } from '../../utils/permissions'
 import { LINKABLE_STATUS, TOLERANCE, casesLeft, linkedCases, totalCases } from '../../utils/dispatchStages'
@@ -146,10 +145,14 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
     }
   }
 
-  const close = () => {
-    if (touched) onChanged?.()
-    onClose()
-  }
+  /**
+   * The list behind this dialog is stale the moment a range is linked, and the
+   * dialog can be shut by the cross, by Escape or by the backdrop as well as
+   * by a button. So it tells the list on the way out, however it goes.
+   */
+  const changed = useRef(false)
+  useEffect(() => { changed.current = touched }, [touched])
+  useEffect(() => () => { if (changed.current) onChanged?.() }, [onChanged])
 
   if (loading) return <div className="px-2 py-4"><SkeletonLines rows={6} /></div>
 
@@ -172,47 +175,41 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
   const covered = waiting.length === 0
 
   return (
-    <div className="flex max-h-[76vh] min-h-[420px] flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
 
-      {/* Identity and how far the whole note has got */}
-      <div className="flex shrink-0 flex-wrap items-center gap-3.5 border-b border-[#EDECE8] pb-3.5">
-        <div className="min-w-0 flex-[1_1_260px]">
-          <h2 className="m-0 flex flex-wrap items-center gap-2 text-[17px] font-semibold tracking-[-0.016em]">
-            {note.deliveryTo?.name || 'Depot not set'}
-            <span
-              className="rounded-[5px] px-[7px] py-0.5 text-[10.5px] font-semibold"
-              style={{ color: marketStyle(note.market).fg, backgroundColor: marketStyle(note.market).bg }}
-            >
-              {marketStyle(note.market).label}
-            </span>
-          </h2>
-          <p className="mt-1 mb-0 text-[12px] text-[#5A636D]">
-            <span className="font-numeric tabular-nums">{shortReference(note._id)}</span>
-            {' · '}{note.company?.name || '—'}
-            {' · '}<span className="font-numeric tabular-nums">{formatDate(note.dateDispatched)}</span>
-          </p>
-        </div>
-        <div className="flex w-[190px] shrink-0 flex-col gap-1.5">
-          <span className="flex items-baseline justify-between gap-2">
-            <span className="font-numeric text-[15px] font-semibold tabular-nums">
-              {formatQuantity(done)}
-              <span className="font-normal text-[#8A919B]"> / {formatQuantity(total)}</span>
-            </span>
-            <span className="text-[10.5px] text-[#5A636D]">cases covered</span>
+      {/* Progress, the full width of the dialog. It used to be squeezed into
+          190px beside the title, which is where the close button landed. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3.5 border-b border-[#EDECE8] bg-[#FAFAF8] px-5 py-2.5">
+        <span className="flex shrink-0 items-baseline gap-[7px]">
+          <span className="font-numeric text-[17px] font-semibold tabular-nums">
+            {formatQuantity(done)}
+            <span className="font-normal text-[#8A919B]"> / {formatQuantity(total)}</span>
           </span>
-          <span className="h-1.5 overflow-hidden rounded bg-[#EFEEEA]">
-            <span
-              className="block h-full rounded"
-              style={{ width: `${pct}%`, backgroundColor: covered ? '#15594A' : '#C07A1E' }}
-            />
-          </span>
-        </div>
+          <span className="text-[11.5px] text-[#5A636D]">cases covered</span>
+        </span>
+        <span className="h-[7px] min-w-[160px] flex-[1_1_220px] overflow-hidden rounded bg-[#EFEEEA]">
+          <span
+            className="block h-full rounded"
+            style={{ width: `${pct}%`, backgroundColor: covered ? '#15594A' : '#C07A1E' }}
+          />
+        </span>
+        <span
+          className="shrink-0 text-[11.5px] font-semibold"
+          style={{ color: covered ? '#15594A' : '#8A5A00' }}
+        >
+          {covered
+            ? 'every case covered'
+            : `${formatQuantity(total - done)} left on ${formatQuantity(waiting.length)} item${waiting.length === 1 ? '' : 's'}`}
+        </span>
       </div>
 
       <div className="flex min-h-0 flex-1 items-stretch">
 
         {/* The items, as a checklist you work down */}
-        <aside className="flex w-[232px] shrink-0 flex-col border-r border-[#EDECE8] bg-[#FAFAF8]">
+        {/* 292px. Measured, not guessed: the longest alias in the catalogue —
+            "Old Monk Lemon Flavoured 750ml" — draws 198px at this size, and
+            272px left only 195px for it. */}
+        <aside className="flex w-[292px] shrink-0 flex-col border-r border-[#EDECE8] bg-[#FAFAF8]">
           <p className="m-0 px-3 pt-3 pb-2 text-[10.5px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase">
             Items · {covered ? 'all covered' : `${formatQuantity(waiting.length)} to cover`}
           </p>
@@ -438,23 +435,13 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
         </section>
       </div>
 
-      {/* The work above is one item; this is what the whole note is waiting for */}
-      <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-[#EDECE8] pt-3.5">
+      {/* The work above is one item; this is what the whole note is waiting
+          for. Closing is the cross in the corner, so it is not said twice. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-[#EDECE8] bg-[#FAFAF8] px-5 py-3">
         <p className="m-0 min-w-0 flex-[1_1_280px] text-[12px] text-[#5A636D]">
-          {covered ? (
-            <>
-              <strong className="font-semibold text-[#15181C]">Every case carries a serial range.</strong>{' '}
-              Record the vehicle to mark this note loaded.
-            </>
-          ) : (
-            <>
-              <strong className="font-semibold text-[#15181C]">
-                {formatQuantity(total - done)} cases across{' '}
-                {formatQuantity(waiting.length)} item{waiting.length === 1 ? '' : 's'}
-              </strong>{' '}
-              still have no serial range. The note can be marked loaded once every case carries one.
-            </>
-          )}
+          {covered
+            ? 'Every case carries a serial range. Record the vehicle to mark this note loaded.'
+            : 'The note can be marked loaded once every case carries a range.'}
         </p>
         <Link
           to={`/dispatch/${note._id}`}
@@ -462,13 +449,6 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
         >
           Open full page
         </Link>
-        <button
-          type="button"
-          onClick={close}
-          className="h-9 shrink-0 cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-3.5 text-[12.5px] font-medium text-[#2A2F36] hover:bg-[#FAFAF8]"
-        >
-          Close
-        </button>
         <button
           type="button"
           disabled={!covered || !mayStatus || note.status !== LINKABLE_STATUS}
