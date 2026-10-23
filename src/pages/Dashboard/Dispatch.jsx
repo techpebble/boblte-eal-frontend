@@ -228,8 +228,16 @@ const Dispatch = () => {
     const move = movesFor(first).find((entry) => !entry.back)
     if (!move) return { blocked: 'There is no next stage for these.' }
     if (!move.allowed) return { blocked: move.reason }
+    // Loading used to mean a vehicle dialog each, which cannot be done to a
+    // selection. Where every note already names its own, there is nothing
+    // left to ask and they can go together.
     if (needsVehicle(first.status, move.to)) {
-      return { blocked: 'Each of these needs its own vehicle recorded, so they go one at a time.' }
+      const bare = selectedNotes.filter((note) => !note.vehicleDetails?.vehicleNumber)
+      if (bare.length > 0) {
+        return {
+          blocked: `${formatQuantity(bare.length)} of these name no vehicle yet. Record it on each, or move them one at a time.`
+        }
+      }
     }
     return { to: move.to, label: move.label }
   }, [selectedNotes, mayStatus])
@@ -288,7 +296,15 @@ const Dispatch = () => {
   })
 
   const moveNote = async (note, to) => {
-    if (needsVehicle(note.status, to)) {
+    // Loading wants a vehicle named. It can now be recorded in the cover
+    // dialog well before the note moves, so this only asks when there is
+    // nothing recorded — and when it does ask, it asks from what is there.
+    if (needsVehicle(note.status, to) && !note.vehicleDetails?.vehicleNumber) {
+      setVehicleData({
+        vehicleNumber: note.vehicleDetails?.vehicleNumber || '',
+        driverName: note.vehicleDetails?.driverName || '',
+        driverContact: note.vehicleDetails?.driverContact || ''
+      })
       setVehicleFor(note)
       setOpenMenu(null)
       return
@@ -932,11 +948,7 @@ const Dispatch = () => {
         {covering && (
           <CoverNote
             dispatchId={covering._id}
-            onClose={(then) => {
-              const note = covering
-              setCovering(null)
-              if (then === 'load') setVehicleFor(note)
-            }}
+            onClose={() => setCovering(null)}
             onChanged={() => setReloadToken((token) => token + 1)}
           />
         )}

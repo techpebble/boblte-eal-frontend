@@ -19,7 +19,15 @@ const bodyCell = 'border-t border-[#EDECE8] px-3 py-2.5 text-[12.5px] text-[#2A2
 const fieldClass =
   'h-9 w-full rounded-lg border border-[#D7D6D1] bg-white px-2.5 font-numeric text-[13px] tabular-nums outline-none focus:border-[#15594A] focus:ring-[3px] focus:ring-[#E7F0EC]'
 
+const textField =
+  'h-9 w-full rounded-lg border border-[#D7D6D1] bg-white px-2.5 text-[13px] outline-none focus:border-[#15594A] focus:ring-[3px] focus:ring-[#E7F0EC]'
+
 const tenDigits = (value) => /^\d{10}$/.test(String(value ?? '').trim())
+
+/** The rail holds items, and one entry that is not an item. */
+const LOAD_PANE = '__load__'
+
+const emptyVehicle = { vehicleNumber: '', driverName: '', driverContact: '' }
 
 /**
  * Covering one dispatch note's cases with serial ranges.
@@ -40,6 +48,7 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
 
   const [focusedId, setFocusedId] = useState(null)
   const [entry, setEntry] = useState({ prefix: '', serialFrom: '', serialTo: '' })
+  const [vehicle, setVehicle] = useState(emptyVehicle)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -64,13 +73,36 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
     setFocusedId((waiting || note.items?.[0])?.item?._id || null)
   }, [note, focusedId])
 
-  const focused = note?.items?.find((entry) => entry.item?._id === focusedId) || null
+  const onLoadPane = focusedId === LOAD_PANE
+  const focused = onLoadPane
+    ? null
+    : note?.items?.find((entry) => entry.item?._id === focusedId) || null
   const shortfall = focused ? casesLeft(focused) : 0
   const perCase = focused?.item?.bottlesPerCase || 0
   const canLink = mayLink && note?.status === LINKABLE_STATUS
 
   // A fresh item means a fresh form.
   useEffect(() => { setEntry({ prefix: '', serialFrom: '', serialTo: '' }) }, [focusedId])
+
+  // What the note says about the lorry, and the copy of it being edited. The
+  // effect watches the three values rather than the note object, so linking a
+  // range does not wipe something half-typed on the other pane.
+  const stored = {
+    vehicleNumber: note?.vehicleDetails?.vehicleNumber || '',
+    driverName: note?.vehicleDetails?.driverName || '',
+    driverContact: note?.vehicleDetails?.driverContact || ''
+  }
+  const { vehicleNumber: storedNumber, driverName: storedDriver, driverContact: storedContact } = stored
+
+  useEffect(() => {
+    setVehicle({ vehicleNumber: storedNumber, driverName: storedDriver, driverContact: storedContact })
+  }, [storedNumber, storedDriver, storedContact])
+
+  const hasVehicle = storedNumber.trim().length > 0
+  const vehicleEdited =
+    vehicle.vehicleNumber !== storedNumber ||
+    vehicle.driverName !== storedDriver ||
+    vehicle.driverContact !== storedContact
 
   const linkOne = async (prefix, serialFrom, serialTo) => {
     const response = await axiosInstance.post(API_PATHS.EALDISPATCH.ADD_EAL_LINK, {
@@ -140,6 +172,52 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
       toast.success('Range unlinked')
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Could not unlink that range.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * Who is carrying the load.
+   *
+   * The stage is left out of the body on purpose: the controller reads it as
+   * `status ?? existing.status`, so omitting it saves the lorry without
+   * moving the note on. Recording a vehicle and marking a note loaded used to
+   * be the same act, and correcting a mistyped number should not be.
+   *
+   * What comes back is not populated, so only the three fields are merged in
+   * rather than the whole note being replaced by a thinner copy of itself.
+   */
+  const saveVehicle = async () => {
+    const body = {
+      vehicleNumber: vehicle.vehicleNumber.trim(),
+      driverName: vehicle.driverName.trim(),
+      driverContact: vehicle.driverContact.trim()
+    }
+    try {
+      setBusy(true)
+      await axiosInstance.put(`${API_PATHS.DISPATCH.UPDATE_DATA}/${note._id}/vehicle`, body)
+      setNote((previous) => ({ ...previous, vehicleDetails: body }))
+      setTouched(true)
+      toast.success(body.vehicleNumber ? 'Vehicle saved' : 'Vehicle cleared')
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Could not save the vehicle.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const markLoaded = async () => {
+    try {
+      setBusy(true)
+      await axiosInstance.put(`${API_PATHS.DISPATCH.UPDATE_DATA}/${note._id}/status`, { status: 'loaded' })
+      setTouched(true)
+      toast.success('Marked loaded')
+      // The note has left the stage this dialog works on, so there is nothing
+      // more to do in it. Unmounting refreshes the list behind.
+      onClose?.()
+    } catch (err) {
+      toast.error(err?.response?.data?.error || err?.response?.data?.message || 'Could not mark this note loaded.')
     } finally {
       setBusy(false)
     }
@@ -263,11 +341,135 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
               )
             })}
           </ul>
+
+          {/* Not an item, but the other thing the note is waiting for, and
+              the reason a second dialog used to open on top of this one. */}
+          <div className="shrink-0 border-t border-[#E3E2DE] p-2">
+            <p className="m-0 px-1 pt-1 pb-1.5 text-[10.5px] font-semibold tracking-[0.07em] text-[#5A636D] uppercase">
+              The load
+            </p>
+            <button
+              type="button"
+              aria-pressed={onLoadPane}
+              onClick={() => setFocusedId(LOAD_PANE)}
+              className={`block w-full cursor-pointer rounded-[9px] border px-[11px] py-2.5 text-left ${
+                onLoadPane ? 'border-[#15594A] bg-white' : 'border-[#E3E2DE] bg-transparent hover:bg-white'
+              }`}
+            >
+              <span className="flex items-start gap-2">
+                <span className="mt-px shrink-0" style={{ color: hasVehicle ? '#15594A' : '#C07A1E' }}>
+                  {hasVehicle ? <CheckIcon size={14} strokeWidth={2.3} /> : <LuCircle className="text-[13px]" />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12px] font-semibold text-[#15181C]">Vehicle &amp; driver</span>
+                  <span className="mt-0.5 block truncate text-[10.5px] text-[#5A636D]">
+                    {hasVehicle
+                      ? <><span className="font-numeric tabular-nums">{storedNumber}</span>{storedDriver ? ` · ${storedDriver}` : ''}</>
+                      : 'Not recorded'}
+                  </span>
+                </span>
+              </span>
+            </button>
+          </div>
         </aside>
 
         {/* The work on the focused item */}
         <section className="min-w-0 flex-1 overflow-y-auto">
-          {!focused ? (
+          {onLoadPane ? (
+            <div className="flex flex-col gap-3 px-4 py-3.5">
+              <div>
+                <h3 className="m-0 text-[15px] font-semibold tracking-[-0.014em]">Vehicle &amp; driver</h3>
+                <p className="mt-1 mb-0 text-[12px] text-[#5A636D]">
+                  Who is carrying this load. Recorded against the note, and what the depot is told to expect.
+                </p>
+              </div>
+
+              {mayStatus ? (
+                <form
+                  className="overflow-hidden rounded-[11px] border border-[#E3E2DE] bg-white"
+                  onSubmit={(event) => { event.preventDefault(); saveVehicle() }}
+                >
+                  <div className="flex flex-col gap-3 px-[15px] py-3.5">
+                    <div>
+                      <label htmlFor="v-number" className="mb-1 block text-[11px] font-medium text-[#3C434B]">
+                        Vehicle number
+                      </label>
+                      <input
+                        id="v-number"
+                        value={vehicle.vehicleNumber}
+                        onChange={({ target }) => setVehicle((p) => ({ ...p, vehicleNumber: target.value.toUpperCase() }))}
+                        placeholder="KA.40.B.9654"
+                        className={`${fieldClass} tracking-[0.04em] uppercase`}
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2.5">
+                      <div className="min-w-0 flex-[1_1_180px]">
+                        <label htmlFor="v-driver" className="mb-1 block text-[11px] font-medium text-[#3C434B]">
+                          Driver name
+                        </label>
+                        <input
+                          id="v-driver"
+                          value={vehicle.driverName}
+                          onChange={({ target }) => setVehicle((p) => ({ ...p, driverName: target.value }))}
+                          placeholder="Name on the licence"
+                          className={textField}
+                        />
+                      </div>
+                      <div className="min-w-0 flex-[1_1_180px]">
+                        <label htmlFor="v-contact" className="mb-1 block text-[11px] font-medium text-[#3C434B]">
+                          Driver contact
+                        </label>
+                        <input
+                          id="v-contact"
+                          value={vehicle.driverContact}
+                          onChange={({ target }) => setVehicle((p) => ({ ...p, driverContact: target.value }))}
+                          inputMode="tel"
+                          placeholder="10 digits"
+                          className={fieldClass}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2.5 border-t border-[#EDECE8] bg-[#FAFAF8] px-[15px] py-2.5">
+                    <p className="m-0 min-w-0 flex-[1_1_200px] text-[11.5px] text-[#5A636D]">
+                      Saving this does not move the note on.
+                    </p>
+                    {vehicleEdited && (
+                      <button
+                        type="button"
+                        onClick={() => setVehicle({ vehicleNumber: storedNumber, driverName: storedDriver, driverContact: storedContact })}
+                        className="h-9 shrink-0 cursor-pointer rounded-lg border border-[#D7D6D1] bg-white px-3 text-[12.5px] font-medium text-[#2A2F36] hover:bg-[#F2F1ED]"
+                      >
+                        Undo changes
+                      </button>
+                    )}
+                    <button
+                      type="submit"
+                      disabled={!vehicleEdited || busy}
+                      className="h-9 shrink-0 cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[12.5px] font-semibold text-white hover:bg-[#124C3F] disabled:cursor-not-allowed disabled:border-[#E3E2DE] disabled:bg-[#F2F1ED] disabled:text-[#A8ADB5]"
+                    >
+                      {busy ? 'Saving…' : hasVehicle ? 'Save changes' : 'Save vehicle'}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="overflow-hidden rounded-[11px] border border-[#E3E2DE] bg-white">
+                  <dl className="m-0 grid grid-cols-[132px_minmax(0,1fr)] gap-x-3 gap-y-2.5 px-[15px] py-3.5 text-[12.5px]">
+                    <dt className="m-0 text-[#5A636D]">Vehicle number</dt>
+                    <dd className="font-numeric m-0 tabular-nums">{storedNumber || '—'}</dd>
+                    <dt className="m-0 text-[#5A636D]">Driver name</dt>
+                    <dd className="m-0">{storedDriver || '—'}</dd>
+                    <dt className="m-0 text-[#5A636D]">Driver contact</dt>
+                    <dd className="font-numeric m-0 tabular-nums">{storedContact || '—'}</dd>
+                  </dl>
+                  <p className="m-0 border-t border-[#EDECE8] bg-[#FAFAF8] px-[15px] py-2.5 text-[11.5px] text-[#5A636D]">
+                    Your role can see the vehicle on this note but not change it.
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : !focused ? (
             <div className="px-4 py-5">
               <EmptyState icon={<TruckIcon size={24} strokeWidth={1.5} />} title="No items" description="This note has no lines." />
             </div>
@@ -435,13 +637,21 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
         </section>
       </div>
 
-      {/* The work above is one item; this is what the whole note is waiting
-          for. Closing is the cross in the corner, so it is not said twice. */}
+      {/* The work above is one pane; this is what the whole note is waiting
+          for. Closing is the cross in the corner, so it is not said twice.
+          Marking loaded happens here rather than in a second dialog over this
+          one — the vehicle it used to ask for is a pane in the rail now. */}
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-[#EDECE8] bg-[#FAFAF8] px-5 py-3">
         <p className="m-0 min-w-0 flex-[1_1_280px] text-[12px] text-[#5A636D]">
-          {covered
-            ? 'Every case carries a serial range. Record the vehicle to mark this note loaded.'
-            : 'The note can be marked loaded once every case carries a range.'}
+          {note.status !== LINKABLE_STATUS
+            ? `This note is ${note.status}. Its ranges and vehicle are shown as they were recorded.`
+            : covered && hasVehicle
+              ? 'Every case carries a range and the vehicle is named. Ready to load.'
+              : `${
+                  covered
+                    ? 'Every case carries a range'
+                    : `${formatQuantity(total - done)} case${total - done === 1 ? '' : 's'} still uncovered`
+                }. A note is marked loaded once every case carries a range and the vehicle is named.`}
         </p>
         <Link
           to={`/dispatch/${note._id}`}
@@ -451,11 +661,11 @@ const CoverNote = ({ dispatchId, onClose, onChanged }) => {
         </Link>
         <button
           type="button"
-          disabled={!covered || !mayStatus || note.status !== LINKABLE_STATUS}
-          onClick={() => { if (touched) onChanged?.(); onClose('load') }}
+          disabled={!covered || !hasVehicle || !mayStatus || busy || note.status !== LINKABLE_STATUS}
+          onClick={markLoaded}
           className="h-9 shrink-0 cursor-pointer rounded-lg border border-[#15594A] bg-[#15594A] px-3.5 text-[12.5px] font-semibold text-white hover:bg-[#124C3F] disabled:cursor-not-allowed disabled:border-[#E3E2DE] disabled:bg-[#F2F1ED] disabled:text-[#A8ADB5]"
         >
-          Mark loaded
+          {busy ? 'Working…' : 'Mark loaded'}
         </button>
       </div>
     </div>
